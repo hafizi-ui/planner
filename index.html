@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="A simple Eisenhower Matrix planner: sort tasks into Do, Schedule, Delegate and Delete.">
+  <title>Eisenhower Planner</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='4' y='4' width='44' height='44' rx='8' fill='%23D6452F'/><rect x='52' y='4' width='44' height='44' rx='8' fill='%232F63D6'/><rect x='4' y='52' width='44' height='44' rx='8' fill='%23C98A06'/><rect x='52' y='52' width='44' height='44' rx='8' fill='%236B7280'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <div>
+          <p class="brand-name">Eisenhower Planner</p>
+          <p class="today" id="today"></p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="ghost-btn" id="exportBtn" type="button">Export</button>
+        <label class="ghost-btn" for="importFile">Import</label>
+        <input type="file" id="importFile" accept="application/json" hidden>
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme">
+          <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+          <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <h1>What deserves your time today?</h1>
+      <p class="lede">Write a task, answer two questions, and it goes to the right box. Do the red box first, and protect time for the blue one.</p>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="composer-main">
+          <input id="taskInput" type="text" maxlength="200" placeholder="Add a task, e.g. Submit semester report" aria-label="New task">
+          <button class="primary-btn" type="submit">Add task</button>
+        </div>
+        <div class="composer-options">
+          <fieldset class="seg">
+            <legend>Is it urgent?</legend>
+            <label><input type="radio" name="urgent" value="1" checked><span>Urgent</span></label>
+            <label><input type="radio" name="urgent" value="0"><span>Can wait</span></label>
+          </fieldset>
+          <fieldset class="seg">
+            <legend>Is it important?</legend>
+            <label><input type="radio" name="important" value="1" checked><span>Important</span></label>
+            <label><input type="radio" name="important" value="0"><span>Not really</span></label>
+          </fieldset>
+          <p class="destination" id="destination" aria-live="polite"></p>
+        </div>
+      </form>
+    </section>
+
+    <section class="progress" aria-label="Progress">
+      <div class="progress-text"><strong id="doneCount">0</strong> of <span id="totalCount">0</span> tasks done</div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span id="barFill"></span></div>
+      <button class="link-btn" id="clearDone" type="button">Clear completed</button>
+    </section>
+
+    <main class="matrix" id="matrix">
+      <div class="axis axis-top" aria-hidden="true"><span>Urgent</span><span>Not urgent</span></div>
+      <div class="axis axis-side" aria-hidden="true"><span>Important</span><span>Not important</span></div>
+      <!-- quadrants rendered by js/app.js -->
+    </main>
+
+    <footer class="foot">
+      <p>Tasks are saved in this browser only. Use Export to back them up or move them to another device.</p>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span id="toastText"></span>
+    <button type="button" id="toastUndo">Undo</button>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
