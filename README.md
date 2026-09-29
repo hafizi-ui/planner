@@ -21,16 +21,16 @@ Built with plain HTML, CSS and vanilla JavaScript. No frameworks, no build step.
 ## Files
 ```
 index.html
-css/style.css
-js/app.js
+style.css
+app.js
 ```
 
 ## Publish on GitHub Pages
 1. Create a new public repository on GitHub, for example `eisenhower-planner`.
-2. Upload all files, keeping the `css` and `js` folders (Add file → Upload files, then drag the whole folder contents in).
+2. Upload all four files (Add file → Upload files).
 3. Go to **Settings → Pages**.
 4. Under **Build and deployment**, set Source to **Deploy from a branch**, Branch to **main** and folder to **/ (root)**, then Save.
-5. After a minute your site is live at `https://YOUR-USERNAME.github.io/eisenhower-planner/`.
+5. After a minute your site is live at `https://YOUR-USERNAME.github.io/REPO-NAME/`.
 
 ## Run locally
 Just open `index.html` in your browser.
