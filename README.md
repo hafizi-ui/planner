@@ -1,4 +1,6 @@
-# Eisenhower Planner
+# JPPP Smart Planner
+
+*Planner berasaskan Matriks Eisenhower (sebelum ini dikenali sebagai Eisenhower Planner).*
 
 **Bukan sekadar senarai, tetapi jurulatih keputusan.**
 *Not just a list, a decision coach.*
@@ -49,6 +51,21 @@ A "Notified" label shows which PICs have been told.
 **Send to each PIC** (button at the bottom of the Delegate box) groups every open task by person and builds **one message per PIC**, numbered and sorted by due date, with an optional heading such as *"Mesyuarat Jabatan Bil. 3/2026"*. Tick *"Only tasks not yet notified"* to send just the new items after a follow-up meeting.
 
 **Team contacts** (⋯ menu) stores each member's name, WhatsApp number and email, so you never retype them. Add them one by one or import a CSV from Excel / Google Sheets (columns: name, WhatsApp no., email). Numbers like `012-345 6789` are converted to WhatsApp format automatically. Contacts stay on your device only and are never part of the public website.
+
+## Task pack: Last Man Out (MQS)
+
+A ready-made set of tasks for running a weekly **Last Man Out** duty rota under the **MARA Ecosystem Quality Standard (MQS)**. The rota and its daily checklist are evidence for MQS auditors that the office has an active system for **energy saving** (lights, fans and air-conditioning off after hours) and **office safety** (main switch off, doors and windows locked), with clear accountability for each week.
+
+Add it from the ⋯ menu (**Tambah pakej: Last Man Out (MQS)**) or open https://hafizi-ui.github.io/planner/?pakej=lmo. The tasks are added on top of your existing ones (nothing is replaced), and adding the pack twice does not create duplicates.
+
+| Box | Tasks |
+|---|---|
+| **Do** | List the officers for the weekly rota |
+| **Schedule** | Prepare the weekly duty roster (date/week + officer name) · Prepare the checklist (lights off, air-conditioning off, main switch/plugs off, main door locked) · Add signature & time-out columns (daily record) · First weekly check by the centre MQS committee · File the roster & forms as MQS audit evidence |
+| **Delegate** | Print & post the roster at the main exit / zone notice board · Tell every officer on the rota · Duty officer completes the checklist every day before leaving (fill in the PIC) |
+| **Delete** | Relying on one person to close the office every day |
+
+Scheduled dates are set from the day you add the pack (tomorrow, in 2 days, in a week), so the tasks move to Do on their own when the day arrives. Edit any date to match your audit timeline.
 
 ## Project monitor (Pantauan projek)
 

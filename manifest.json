@@ -1,6 +1,6 @@
 {
-  "name": "Eisenhower Planner",
-  "short_name": "Planner",
+  "name": "JPPP Smart Planner",
+  "short_name": "JPPP Planner",
   "description": "A bilingual decision coach: sort tasks into Do, Schedule, Delegate and Delete, then see where your week went.",
   "id": "./",
   "start_url": "./",

@@ -1,4 +1,4 @@
-/* Eisenhower Planner: a decision coach, not just a list.
+/* JPPP Smart Planner (Eisenhower Matrix): a decision coach, not just a list.
    Plain JavaScript, no dependencies. Data stays in this browser (localStorage). */
 (function () {
   "use strict";
@@ -73,8 +73,8 @@
       markDone: function (x) { return "Mark as done: " + x; },
       dblEdit: "Double-click to edit", schedDate: "Scheduled date", delegatedTo: "Delegated to", whoPh: "Who handles it?",
       addToCal: function (x) { return "Add to Google Calendar: " + x; },
-      calDetails: "Planned in the Schedule box of Eisenhower Planner (https://hafizi-ui.github.io/planner/).",
-      calDetailsDel: "Task assigned via Eisenhower Planner (https://hafizi-ui.github.io/planner/).",
+      calDetails: "Planned in the Schedule box of JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
+      calDetailsDel: "Task assigned via JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
       fromSchedule: "From Schedule", onlyYou: "Only you", overdue: "Overdue",
       dueDate: "Due date", notified: "Notified", saveContact: "Save contact",
       waAria: function (n, x) { return "Send on WhatsApp to " + n + ": " + x; },
@@ -143,6 +143,9 @@
       saveFail: "Could not save. Export a backup now.",
       confirmSample: "Replace your current tasks with the sample week? A copy of your tasks is kept, and Export still works.",
       sampleLoaded: "Sample week loaded. Open Insight to see the review.",
+      packLmo: "Add pack: Last Man Out (MQS)",
+      packAdded: function (n) { return n + " Last Man Out (MQS) tasks added. Fill in the PIC in Delegate."; },
+      packExists: "The Last Man Out (MQS) tasks are already in your planner.",
       q: {
         "do":       { title: "Do",       sub: "Urgent and important",         hint: "Finish these first.",       empty: "Nothing here yet. Urgent + important tasks land here." },
         "schedule": { title: "Schedule", sub: "Important, not urgent",        hint: "Give each one a date.",     empty: "Add what moves you forward: study, health, planning." },
@@ -197,8 +200,8 @@
       markDone: function (x) { return "Tanda selesai: " + x; },
       dblEdit: "Klik dua kali untuk sunting", schedDate: "Tarikh dijadualkan", delegatedTo: "Diagihkan kepada", whoPh: "Siapa yang uruskan?",
       addToCal: function (x) { return "Tambah ke Google Calendar: " + x; },
-      calDetails: "Dirancang dalam kotak Jadualkan, Eisenhower Planner (https://hafizi-ui.github.io/planner/).",
-      calDetailsDel: "Tugasan diagihkan melalui Eisenhower Planner (https://hafizi-ui.github.io/planner/).",
+      calDetails: "Dirancang dalam kotak Jadualkan, JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
+      calDetailsDel: "Tugasan diagihkan melalui JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
       fromSchedule: "Dari Jadualkan", onlyYou: "Hanya anda", overdue: "Lewat",
       dueDate: "Tarikh akhir", notified: "Dimaklumkan", saveContact: "Simpan kenalan",
       waAria: function (n, x) { return "Hantar WhatsApp kepada " + n + ": " + x; },
@@ -267,6 +270,9 @@
       saveFail: "Tidak dapat simpan. Eksport sandaran sekarang.",
       confirmSample: "Ganti tugasan semasa dengan minggu contoh? Salinan tugasan anda tetap disimpan, dan Eksport masih boleh digunakan.",
       sampleLoaded: "Minggu contoh dimuatkan. Buka Analisis untuk lihat ulasan.",
+      packLmo: "Tambah pakej: Last Man Out (MQS)",
+      packAdded: function (n) { return n + " tugasan Last Man Out (MQS) ditambah. Isi nama PIC di kotak Agihkan."; },
+      packExists: "Tugasan Last Man Out (MQS) sudah ada dalam planner anda.",
       q: {
         "do":       { title: "Buat",      sub: "Segera dan penting",              hint: "Siapkan ini dahulu.",                 empty: "Belum ada apa-apa. Tugasan segera + penting masuk di sini." },
         "schedule": { title: "Jadualkan", sub: "Penting, tidak segera",           hint: "Tetapkan tarikh untuk setiap satu.",  empty: "Tambah perkara yang membawa anda ke hadapan: belajar, kesihatan, perancangan." },
@@ -1198,6 +1204,58 @@
   $("sampleMenuBtn").addEventListener("click", function () { closeMenu(); loadSample(false); });
 
   /* ================================================================
+     Task pack: Last Man Out (MARA Ecosystem Quality Standard, MQS)
+     Weekly duty rota + checklist as audit evidence for energy saving and
+     office safety. Added on top of existing tasks (never replaces them).
+     Fixed ids, so adding the pack twice does not create duplicates.
+     ================================================================ */
+  function packLmoData() {
+    var now = Date.now();
+    function dateIn(days) { return todayISO(now + days * DAY); }
+    var bm = lang === "ms";
+    var L = function (ms, en) { return bm ? ms : en; };
+    return [
+      { id: "mqs-lmo-01", q: "do",
+        text: L("Senaraikan pegawai untuk giliran mingguan Last Man Out (MQS)", "List the officers for the weekly Last Man Out rota (MQS)") },
+      { id: "mqs-lmo-02", q: "schedule", date: dateIn(1),
+        text: L("Sediakan Jadual Bertugas Mingguan Last Man Out: tarikh/minggu bertugas dan nama pegawai", "Prepare the weekly Last Man Out duty roster: duty date/week and officer name") },
+      { id: "mqs-lmo-03", q: "schedule", date: dateIn(2),
+        text: L("Sediakan borang senarai semak Last Man Out: lampu ditutup, penyaman udara dimatikan, suis utama/palam dicabut, pintu utama dikunci", "Prepare the Last Man Out checklist: lights off, air-conditioning off, main switch/plugs off, main door locked") },
+      { id: "mqs-lmo-04", q: "schedule", date: dateIn(2),
+        text: L("Tambah ruangan tandatangan & masa keluar pada borang Last Man Out (rekod harian)", "Add signature & time-out columns to the Last Man Out form (daily record)") },
+      { id: "mqs-lmo-05", q: "schedule", date: dateIn(7),
+        text: L("Semakan rekod Last Man Out minggu pertama oleh Jawatankuasa MQS pusat", "First weekly check of Last Man Out records by the centre's MQS committee") },
+      { id: "mqs-lmo-06", q: "schedule",
+        text: L("Failkan jadual & borang Last Man Out sebagai bukti audit MQS (penjimatan tenaga & keselamatan pejabat)", "File the Last Man Out roster & forms as MQS audit evidence (energy saving & office safety)") },
+      { id: "mqs-lmo-07", q: "delegate", who: "", date: dateIn(3),
+        text: L("Cetak & tampal jadual Last Man Out di pintu keluar utama / papan kenyataan zon", "Print & post the Last Man Out roster at the main exit / zone notice board") },
+      { id: "mqs-lmo-08", q: "delegate", who: "", date: dateIn(3),
+        text: L("Maklumkan giliran Last Man Out kepada semua pegawai bertugas", "Tell every officer on the rota about the Last Man Out schedule") },
+      { id: "mqs-lmo-09", q: "delegate", who: "", date: dateIn(4),
+        text: L("Pegawai bertugas lengkapkan senarai semak, tandatangan & masa keluar setiap hari sebelum pulang", "Duty officer completes the checklist, signature & time out every day before leaving") },
+      { id: "mqs-lmo-10", q: "delete",
+        text: L("Bergantung kepada seorang sahaja untuk menutup pejabat setiap hari", "Relying on one person to close the office every day") }
+    ];
+  }
+
+  function addPackLmo() {
+    var have = Object.create(null);
+    tasks.concat(archive).forEach(function (t) { have[t.id] = true; });
+    var created = Date.now();
+    var fresh = packLmoData().filter(function (t) { return !have[t.id]; })
+      .map(function (t) { t.created = created; return t; });
+    if (!fresh.length) { showToast(T("packExists"), false); return; }
+    var seen = Object.create(null);
+    tasks.concat(archive).forEach(function (t) { seen[t.id] = true; });
+    tasks = tasks.concat(cleanList(fresh, seen));
+    var n = promoteDue();
+    commit();
+    showToast(T("packAdded", fresh.length), false);
+    setTimeout(function () { flash(n ? "do" : "schedule"); }, 300);
+  }
+  $("packLmoBtn").addEventListener("click", function () { closeMenu(); addPackLmo(); });
+
+  /* ================================================================
      Menu, export / import, install
      ================================================================ */
   var menu = $("menu"), menuBtn = $("menuBtn");
@@ -1217,7 +1275,7 @@
     closeMenu();
     var data = { app: "eisenhower-planner", version: 2, exportedAt: new Date().toISOString(), tasks: tasks, archive: archive, contacts: contacts };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var a = h("a", { href: URL.createObjectURL(blob), download: "eisenhower-tasks-" + todayISO() + ".json" });
+    var a = h("a", { href: URL.createObjectURL(blob), download: "jppp-smart-planner-" + todayISO() + ".json" });
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
@@ -1800,6 +1858,11 @@
   // ?demo=1 loads the sample week (only when the planner is empty, so real data is never replaced)
   if (/[?&]demo=1\b/.test(location.search)) {
     if (!tasks.length) loadSample(true);
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+  }
+  // ?pakej=lmo adds the Last Man Out (MQS) task pack on top of existing tasks
+  if (/[?&]pakej=lmo\b/.test(location.search)) {
+    addPackLmo();
     try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
   }
 })();

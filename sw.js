@@ -1,6 +1,6 @@
 /* Offline support: serve the app from cache, refresh the cache in the background.
    Change CACHE (e.g. planner-v7) whenever you upload new files, so phones get the update. */
-const CACHE = "planner-v6";
+const CACHE = "planner-v7";
 const SHELL = [
   "./", "./index.html", "./style.css", "./app.js", "./manifest.json",
   "./icon.svg", "./icon-192.png", "./icon-180.png",
