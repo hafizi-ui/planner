@@ -174,7 +174,7 @@
       rLate: "Late", rToday: "Today", rThisWeek: "This week",
       rSettings: "Rota settings", rMode: "Rota type", rWeek: "Weekly (Mon–Fri)", rDay: "Daily",
       rOrder: "Order", rOrderProg: "By programme (org chart)", rOrderAz: "By name (A–Z)",
-      rStart: "Start date", rTimeFrom: "Duty starts", rTimeTo: "Duty ends",
+      rStart: "Start date", rTimeFrom: "Duty starts", rTimeTo: "Duty ends", rBadTime: "The duty must end after it starts.",
       rMembers: function (n, total) { return "Members in the rota (" + n + "/" + total + ")"; },
       rMembersHint: "Changes apply the next time you rebuild or extend the rota.",
       rNoProg: "No programme",
@@ -374,7 +374,7 @@
       rLate: "Lewat", rToday: "Hari ini", rThisWeek: "Minggu ini",
       rSettings: "Tetapan giliran", rMode: "Jenis giliran", rWeek: "Mingguan (Isn–Jum)", rDay: "Harian",
       rOrder: "Susunan", rOrderProg: "Ikut program (carta organisasi)", rOrderAz: "Ikut nama (A–Z)",
-      rStart: "Tarikh mula", rTimeFrom: "Masa mula bertugas", rTimeTo: "Masa tamat bertugas",
+      rStart: "Tarikh mula", rTimeFrom: "Masa mula bertugas", rTimeTo: "Masa tamat bertugas", rBadTime: "Masa tamat mesti selepas masa mula.",
       rMembers: function (n, total) { return "Ahli dalam giliran (" + n + "/" + total + ")"; },
       rMembersHint: "Perubahan berkuat kuasa apabila jadual dijana semula atau disambung.",
       rNoProg: "Tiada program",
@@ -2358,7 +2358,10 @@
     function timeInput(key) {
       var t = h("input", { type: "time", value: rota[key], "data-k": key });
       t.addEventListener("change", function () {
-        if (TIME_RE.test(t.value)) { rota[key] = t.value; saveRota(true); } else t.value = rota[key];
+        var v = t.value, ok = TIME_RE.test(v) && (key === "timeFrom" ? v < rota.timeTo : v > rota.timeFrom);
+        if (ok) { rota[key] = v; saveRota(true); return; }
+        t.value = rota[key];
+        if (TIME_RE.test(v)) { announce(T("rBadTime")); showToast(T("rBadTime"), false); }
       });
       return t;
     }
