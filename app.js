@@ -39,6 +39,18 @@
       "&details=" + encodeURIComponent(T(t.q === "delegate" ? "calDetailsDel" : "calDetails")) +
       (guestEmail ? "&add=" + encodeURIComponent(guestEmail) : "");
   }
+  // Last Man Out duty as a timed Google Calendar event (Malaysia time); a weekly turn repeats on each working day
+  function lmoCalUrl(e, c) {
+    var name = c ? c.name : e.name, days = workdays(e.start, e.end);
+    function stamp(iso, hhmm) { return iso.replace(/-/g, "") + "T" + hhmm.replace(":", "") + "00"; }
+    return "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+      "&text=" + encodeURIComponent(T("lmoCalText", name)) +
+      "&dates=" + stamp(e.start, rota.timeFrom) + "/" + stamp(e.start, rota.timeTo) +
+      "&ctz=Asia%2FKuala_Lumpur" +
+      (days > 1 ? "&recur=" + encodeURIComponent("RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;COUNT=" + days) : "") +
+      "&details=" + encodeURIComponent(T("lmoCalDetails", T("lmoList"))) +
+      (c && c.email ? "&add=" + encodeURIComponent(c.email) : "");
+  }
 
   /* ================================================================
      Text in two languages (BM / EN)
@@ -48,9 +60,9 @@
       skip: "Skip to task box",
       insight: "Insight", more: "More options", export: "Export backup", import: "Import backup",
       loadSample: "Load sample week", install: "Install app", language: "Language", theme: "Switch light or dark theme",
-      h1: "What deserves your time today?",
-      lede: "Write a task and answer two quick questions. The planner puts it in the right box and shows you where your week really went.",
-      placeholder: "Add a task, e.g. Submit report tomorrow", newTask: "New task", add: "Add task",
+      h1: "What needs handling today?",
+      lede: "Sort department work by priority, delegate meeting actions to each PIC and send Last Man Out reminders on time. Answer two quick questions and the planner puts each task in the right box.",
+      placeholder: "Add a task, e.g. Circulate the meeting minutes tomorrow", newTask: "New task", add: "Add task",
       qUrgent: "Is it urgent?", qImportant: "Is it important?", qOther: "Can someone else do it?",
       whatUrgent: "What counts as urgent?", whatImportant: "What counts as important?",
       tipUrgent: "Due within 48 hours, or someone is waiting on you.",
@@ -88,10 +100,10 @@
       contactsNote: "Saved on this device only. Never uploaded anywhere. Included in Export backup.",
       cName: "Name", cPhone: "WhatsApp no.", cEmail: "Email", cSave: "Save", cUpdate: "Update", cCancel: "Cancel",
       cImport: "Import CSV", cTemplate: "CSV template", cExport: "Export CSV", cSearch: "Search contacts",
-      cCsvHelp: "CSV columns: name, WhatsApp no., email. Save from Excel or Google Sheets as .csv.",
+      cCsvHelp: "CSV columns: Name, WhatsApp no., Email, Role, Programme, LMO rota (Yes/No). Only the name is required. Save from Excel or Google Sheets as .csv.",
       cEmpty: "No contacts yet. Add them one by one, or import a CSV from Excel / Google Sheets.",
       cImported: function (n) { return n + " contacts imported"; }, cBadCsv: "No contacts found in that file",
-      cNeed: "Enter a name and at least a WhatsApp number or an email.",
+      cNeed: "Enter a name.",
       cBadPhone: "That WhatsApp number doesn't look right. Example: 012-345 6789",
       cBadEmail: "That email doesn't look right.",
       cDelete: function (n) { return "Delete " + n + " from contacts?"; },
@@ -99,7 +111,7 @@
       cCount: function (n) { return n + (n === 1 ? " contact" : " contacts"); },
       sendByPic: "Send to each PIC", sendTitle: "Send tasks by PIC",
       sendNote: "One message per person with all their open tasks. Good for meeting minutes.",
-      meetingLabel: "From (optional)", meetingPh: "e.g. Department Meeting 3/2026",
+      meetingLabel: "From (optional)", meetingPh: "e.g. JPPP Department Meeting 3/2026",
       onlyNew: "Only tasks not yet notified",
       noPics: "No open Delegate tasks with a PIC yet.",
       notSaved: "Not in contacts yet",
@@ -146,6 +158,79 @@
       packLmo: "Add pack: Last Man Out (MQS)",
       packAdded: function (n) { return n + " Last Man Out (MQS) tasks added. Fill in the PIC in Delegate."; },
       packExists: "The Last Man Out (MQS) tasks are already in your planner.",
+      brandSub: "Department Secretary · KPTM Kuantan",
+      cRole: "Role", cProg: "Programme", cProgPh: "e.g. AA101", cRotaCol: "LMO rota", cYes: "Yes", cNo: "No",
+      cRoles: ["Head of Department", "Secretary", "Programme Coordinator", "Lecturer"],
+      cSample: "Sample Name,012-345 6789,name@kptm.edu.my,Lecturer,AA101,Yes",
+      cNoReach: "No WhatsApp no. or email yet",
+      cSavedNoReach: function (n) { return n + " saved. Add a WhatsApp no. or email so messages can be sent."; },
+      completeContact: "Complete contact", addPhone: "Add WhatsApp no.", addEmail: "Add email",
+      rota: "Last Man Out rota", rTitle: "Last Man Out rota",
+      rNow: function (n) { return "On duty now: " + n; },
+      rNext: function (n, d) { return "Next on duty: " + n + " (" + d + ")"; },
+      rNoneYet: "No rota yet",
+      rDue: "Notices to send", rNothingDue: "No notices to send right now.",
+      rGasOn: "Emails and calendar invitations are sent by Google Apps Script, so only WhatsApp is listed here.",
+      rLate: "Late", rToday: "Today", rThisWeek: "This week",
+      rSettings: "Rota settings", rMode: "Rota type", rWeek: "Weekly (Mon–Fri)", rDay: "Daily",
+      rOrder: "Order", rOrderProg: "By programme (org chart)", rOrderAz: "By name (A–Z)",
+      rStart: "Start date", rTimeFrom: "Duty starts", rTimeTo: "Duty ends",
+      rMembers: function (n, total) { return "Members in the rota (" + n + "/" + total + ")"; },
+      rMembersHint: "Changes apply the next time you rebuild or extend the rota.",
+      rNoProg: "No programme",
+      rGas: "Email & calendar are sent automatically by Google Apps Script",
+      rGenerate: "Create rota", rRegen: "Rebuild from start date", rExtend: "Add one more round",
+      rRegenConfirm: function (d) { return "Rebuild the rota from " + d + "? Turns already notified, or starting within 2 days, will not change."; },
+      rGenerated: function (n) { return n + (n === 1 ? " turn" : " turns") + " created"; },
+      rExtended: function (n) { return n + (n === 1 ? " turn" : " turns") + " added"; },
+      rNoMembers: "No one is in the rota yet. Import the staff list (CSV) in Team contacts, then tick who takes turns.",
+      rOpenContacts: "Open team contacts",
+      rTools: "Print & export", rExportCsv: "Export CSV for Google Sheet",
+      rPrintRoster: "Print roster", rPrintCheck: "Print checklist (4 weeks)", rGuide: "Apps Script guide",
+      rReexport: "The rota has changed since the last export. Export the CSV again and import it into the Google Sheet, so the script sends to the right people.",
+      rExported: function (n) { return "Rota CSV exported (" + n + (n === 1 ? " row)" : " rows)"); },
+      rList: "Turns",
+      rShowPast: function (n) { return "Show " + n + (n === 1 ? " past turn" : " past turns"); }, rHidePast: "Hide past turns",
+      rPerson: function (p) { return "Duty officer, " + p; }, rNoPerson: "— Choose officer —",
+      rOff: "Public holiday / no duty",
+      rSwapConfirm: function (b, pa, a, pb) { return "Swap turns? " + b + " takes " + pa + " and " + a + " takes " + pb + ". Notices for both turns will be sent again."; },
+      rSwapped: "Turns swapped", rReplaced: "Duty officer changed",
+      rTellOld: function (n) { return "Let " + n + " know the turn has changed"; },
+      rOffOn: "Marked as no duty. Later turns moved back by one, so nobody loses a turn.",
+      rOffOff: "No-duty mark removed. Turns moved forward again.",
+      rSentMark: function (ch, n) { return ch + " to " + n + " marked as sent"; },
+      rUnmark: function (ch, n) { return ch + " to " + n + " marked as not sent"; },
+      rChipAria: function (label, n) { return label + ", " + n; },
+      rNothingToPrint: "No turns to print yet.",
+      rTo: " to ",
+      chEmail: "Email", chCal: "Calendar", chWa: "WhatsApp",
+      lmoBanner: function (list) { return "Last Man Out: notices for " + list + " are due."; },
+      lmoSend: "Send", lmoMore: function (n) { return "+" + n + " more"; },
+      lmoList: "1. All lights off\n2. Air-conditioning & fans off\n3. Main switch off / plugs unplugged\n4. Main door & windows locked\n5. Sign the form & record time out",
+      lmoSignoff: "Secretary, JPPP Department, KPTM Kuantan",
+      lmoWaMsg: function (name, oneDay, period, from, list, signoff) {
+        return "Hi " + name + ",\n\nReminder: you are the *Last Man Out officer* " + (oneDay ? "today" : "this week") + " (" + period + ").\n\n" +
+          "Before leaving (around " + from + "), please make sure:\n" + list + "\n\nThank you.\n" + signoff;
+      },
+      lmoMailSubject: function (period) { return "Last Man Out duty (MQS): " + period; },
+      lmoMailBody: function (name, period, from, to, list, signoff) {
+        return "Hi " + name + ",\n\nYou are scheduled as the Last Man Out officer (MQS) for the JPPP Department on " + period + ".\n\n" +
+          "On each duty day, before leaving the office (around " + from + "–" + to + "):\n" + list + "\n\n" +
+          "A Google Calendar invitation is also being sent. If you cannot do this duty (leave/course), please let me know as soon as possible so the turn can be swapped.\n\nThank you.\n" + signoff;
+      },
+      lmoCalText: function (n) { return "Last Man Out (MQS): " + n; },
+      lmoCalDetails: function (list) { return "Last Man Out officer duty before leaving the office:\n" + list + "\n\nLast Man Out duty roster, JPPP Department, KPTM Kuantan (MQS)."; },
+      pRosterTitle: "Weekly Last Man Out Duty Roster (MQS)", pRosterTitleDay: "Daily Last Man Out Duty Roster (MQS)",
+      pDept: "Business Management & Accounting Department, KPTM Kuantan",
+      pDutyTime: function (a, b) { return "Duty time: " + a + "–" + b + ", Monday to Friday"; },
+      pMqs: "MQS audit evidence: energy saving & office safety",
+      pBil: "No.", pWeek: "Week / Date", pName: "Officer", pRole: "Role / Programme", pSign: "Signature", pNote: "Remarks",
+      pHoliday: "Public holiday",
+      pCheckTitle: "Last Man Out Daily Checklist",
+      pDate: "Date", pOfficer: "Officer", pLights: "Lights", pAc: "Air-conditioning", pSwitch: "Main switch / plugs",
+      pDoor: "Door & windows locked", pTimeOut: "Time out",
+      pCheckedBy: "Checked by: ______________________________     Date: ________________",
+      pPrinted: function (d) { return "Printed on " + d; },
       q: {
         "do":       { title: "Do",       sub: "Urgent and important",         hint: "Finish these first.",       empty: "Nothing here yet. Urgent + important tasks land here." },
         "schedule": { title: "Schedule", sub: "Important, not urgent",        hint: "Give each one a date.",     empty: "Add what moves you forward: study, health, planning." },
@@ -175,9 +260,9 @@
       skip: "Langkau ke kotak tugasan",
       insight: "Analisis", more: "Pilihan lain", export: "Eksport sandaran", import: "Import sandaran",
       loadSample: "Muat minggu contoh", install: "Pasang aplikasi", language: "Bahasa", theme: "Tukar tema cerah atau gelap",
-      h1: "Apa yang layak dapat masa anda hari ini?",
-      lede: "Tulis tugasan dan jawab dua soalan ringkas. Planner akan letakkan dalam kotak yang betul dan tunjukkan ke mana masa anda pergi sepanjang minggu.",
-      placeholder: "Tambah tugasan, cth. Hantar laporan esok", newTask: "Tugasan baharu", add: "Tambah",
+      h1: "Apa yang perlu diurus hari ini?",
+      lede: "Susun kerja jabatan ikut keutamaan, agihkan tindakan mesyuarat kepada setiap PIC dan hantar peringatan Last Man Out tepat pada masanya. Jawab dua soalan ringkas, dan planner akan letakkan setiap tugasan dalam kotak yang betul.",
+      placeholder: "Tambah tugasan, cth. Edarkan minit mesyuarat esok", newTask: "Tugasan baharu", add: "Tambah",
       qUrgent: "Adakah ia segera?", qImportant: "Adakah ia penting?", qOther: "Boleh orang lain buat?",
       whatUrgent: "Apa maksud segera?", whatImportant: "Apa maksud penting?",
       tipUrgent: "Perlu siap dalam 48 jam, atau ada orang sedang menunggu anda.",
@@ -215,10 +300,10 @@
       contactsNote: "Disimpan dalam peranti ini sahaja. Tidak dimuat naik ke mana-mana. Termasuk dalam Eksport sandaran.",
       cName: "Nama", cPhone: "No. WhatsApp", cEmail: "Emel", cSave: "Simpan", cUpdate: "Kemas kini", cCancel: "Batal",
       cImport: "Import CSV", cTemplate: "Templat CSV", cExport: "Eksport CSV", cSearch: "Cari kenalan",
-      cCsvHelp: "Lajur CSV: nama, no. WhatsApp, emel. Simpan dari Excel atau Google Sheets sebagai .csv.",
+      cCsvHelp: "Lajur CSV: Nama, No. WhatsApp, Emel, Jawatan, Program, Giliran LMO (Ya/Tidak). Hanya nama yang wajib. Simpan dari Excel atau Google Sheets sebagai .csv.",
       cEmpty: "Belum ada kenalan. Tambah satu persatu, atau import CSV dari Excel / Google Sheets.",
       cImported: function (n) { return n + " kenalan diimport"; }, cBadCsv: "Tiada kenalan dijumpai dalam fail itu",
-      cNeed: "Isi nama dan sekurang-kurangnya no. WhatsApp atau emel.",
+      cNeed: "Isi nama.",
       cBadPhone: "No. WhatsApp itu nampak tidak betul. Contoh: 012-345 6789",
       cBadEmail: "Emel itu nampak tidak betul.",
       cDelete: function (n) { return "Padam " + n + " daripada kenalan?"; },
@@ -226,7 +311,7 @@
       cCount: function (n) { return n + " kenalan"; },
       sendByPic: "Hantar ikut PIC", sendTitle: "Hantar tugasan ikut PIC",
       sendNote: "Satu mesej untuk setiap orang, mengandungi semua tugasan mereka yang belum selesai. Sesuai untuk minit mesyuarat.",
-      meetingLabel: "Daripada (pilihan)", meetingPh: "cth. Mesyuarat Jabatan Bil. 3/2026",
+      meetingLabel: "Daripada (pilihan)", meetingPh: "cth. Mesyuarat Jabatan JPPP Bil. 3/2026",
       onlyNew: "Hanya tugasan yang belum dimaklumkan",
       noPics: "Belum ada tugasan Agihkan yang ada PIC.",
       notSaved: "Belum ada dalam kenalan",
@@ -273,6 +358,79 @@
       packLmo: "Tambah pakej: Last Man Out (MQS)",
       packAdded: function (n) { return n + " tugasan Last Man Out (MQS) ditambah. Isi nama PIC di kotak Agihkan."; },
       packExists: "Tugasan Last Man Out (MQS) sudah ada dalam planner anda.",
+      brandSub: "Setiausaha Jabatan · KPTM Kuantan",
+      cRole: "Jawatan", cProg: "Program", cProgPh: "cth. AA101", cRotaCol: "Giliran LMO", cYes: "Ya", cNo: "Tidak",
+      cRoles: ["Ketua Jabatan", "Setiausaha", "Ketua Program", "Pensyarah"],
+      cSample: "Nama Contoh,012-345 6789,nama@kptm.edu.my,Pensyarah,AA101,Ya",
+      cNoReach: "Tiada no. WhatsApp / emel",
+      cSavedNoReach: function (n) { return n + " disimpan. Tambah no. WhatsApp atau emel supaya mesej boleh dihantar."; },
+      completeContact: "Lengkapkan kenalan", addPhone: "Tambah no. WhatsApp", addEmail: "Tambah emel",
+      rota: "Giliran Last Man Out", rTitle: "Giliran Last Man Out",
+      rNow: function (n) { return "Bertugas sekarang: " + n; },
+      rNext: function (n, d) { return "Giliran seterusnya: " + n + " (" + d + ")"; },
+      rNoneYet: "Belum ada jadual giliran",
+      rDue: "Perlu dihantar", rNothingDue: "Tiada notis yang perlu dihantar sekarang.",
+      rGasOn: "Emel dan jemputan kalendar dihantar oleh Google Apps Script, jadi hanya WhatsApp disenaraikan di sini.",
+      rLate: "Lewat", rToday: "Hari ini", rThisWeek: "Minggu ini",
+      rSettings: "Tetapan giliran", rMode: "Jenis giliran", rWeek: "Mingguan (Isn–Jum)", rDay: "Harian",
+      rOrder: "Susunan", rOrderProg: "Ikut program (carta organisasi)", rOrderAz: "Ikut nama (A–Z)",
+      rStart: "Tarikh mula", rTimeFrom: "Masa mula bertugas", rTimeTo: "Masa tamat bertugas",
+      rMembers: function (n, total) { return "Ahli dalam giliran (" + n + "/" + total + ")"; },
+      rMembersHint: "Perubahan berkuat kuasa apabila jadual dijana semula atau disambung.",
+      rNoProg: "Tiada program",
+      rGas: "Emel & kalendar dihantar automatik oleh Google Apps Script",
+      rGenerate: "Jana jadual", rRegen: "Jana semula dari tarikh mula", rExtend: "Sambung satu pusingan",
+      rRegenConfirm: function (d) { return "Jana semula giliran mulai " + d + "? Giliran yang sudah dimaklumkan, atau bermula dalam 2 hari, tidak akan berubah."; },
+      rGenerated: function (n) { return n + " giliran dijana"; },
+      rExtended: function (n) { return n + " giliran ditambah"; },
+      rNoMembers: "Belum ada ahli dalam giliran. Import senarai staf (CSV) di Kenalan jabatan, kemudian tanda siapa yang terlibat.",
+      rOpenContacts: "Buka Kenalan jabatan",
+      rTools: "Cetak & eksport", rExportCsv: "Eksport CSV untuk Google Sheet",
+      rPrintRoster: "Cetak jadual", rPrintCheck: "Cetak senarai semak (4 minggu)", rGuide: "Panduan Apps Script",
+      rReexport: "Giliran telah berubah sejak eksport terakhir. Eksport CSV sekali lagi dan import ke Google Sheet supaya skrip menghantar kepada orang yang betul.",
+      rExported: function (n) { return "CSV giliran dieksport (" + n + " baris)"; },
+      rList: "Senarai giliran",
+      rShowPast: function (n) { return "Tunjuk " + n + " giliran lepas"; }, rHidePast: "Sembunyi giliran lepas",
+      rPerson: function (p) { return "Pegawai bertugas, " + p; }, rNoPerson: "— Pilih pegawai —",
+      rOff: "Cuti umum / tiada tugas",
+      rSwapConfirm: function (b, pa, a, pb) { return "Tukar giliran? " + b + " ambil giliran " + pa + " dan " + a + " ambil giliran " + pb + ". Notis bagi kedua-dua giliran akan dihantar semula."; },
+      rSwapped: "Giliran ditukar", rReplaced: "Pegawai bertugas ditukar",
+      rTellOld: function (n) { return "Maklumkan " + n + " bahawa giliran telah ditukar"; },
+      rOffOn: "Ditanda tiada tugas. Giliran seterusnya dianjak satu, jadi tiada sesiapa terlepas giliran.",
+      rOffOff: "Tanda tiada tugas dibatalkan. Giliran dikembalikan seperti asal.",
+      rSentMark: function (ch, n) { return ch + " kepada " + n + " ditanda sudah dihantar"; },
+      rUnmark: function (ch, n) { return ch + " kepada " + n + " ditanda belum dihantar"; },
+      rChipAria: function (label, n) { return label + ", " + n; },
+      rNothingToPrint: "Belum ada giliran untuk dicetak.",
+      rTo: " hingga ",
+      chEmail: "Emel", chCal: "Kalendar", chWa: "WhatsApp",
+      lmoBanner: function (list) { return "Last Man Out: notis untuk " + list + " perlu dihantar."; },
+      lmoSend: "Hantar", lmoMore: function (n) { return "+" + n + " lagi"; },
+      lmoList: "1. Semua lampu ditutup\n2. Penyaman udara & kipas dimatikan\n3. Suis utama dimatikan / palam dicabut\n4. Pintu utama & tingkap dikunci\n5. Tandatangan borang & catat masa keluar",
+      lmoSignoff: "Setiausaha Jabatan JPPP, KPTM Kuantan",
+      lmoWaMsg: function (name, oneDay, period, from, list, signoff) {
+        return "Salam " + name + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + (oneDay ? "hari ini" : "minggu ini") + " (" + period + ").\n\n" +
+          "Sebelum pulang (sekitar " + from + "), sila pastikan:\n" + list + "\n\nTerima kasih.\n" + signoff;
+      },
+      lmoMailSubject: function (period) { return "Giliran Last Man Out (MQS): " + period; },
+      lmoMailBody: function (name, period, from, to, list, signoff) {
+        return "Salam " + name + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " + period + ".\n\n" +
+          "Setiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + list + "\n\n" +
+          "Jemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar.\n\nTerima kasih.\n" + signoff;
+      },
+      lmoCalText: function (n) { return "Last Man Out (MQS): " + n; },
+      lmoCalDetails: function (list) { return "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + list + "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS)."; },
+      pRosterTitle: "Jadual Bertugas Mingguan Last Man Out (MQS)", pRosterTitleDay: "Jadual Bertugas Harian Last Man Out (MQS)",
+      pDept: "Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan",
+      pDutyTime: function (a, b) { return "Masa bertugas: " + a + "–" + b + ", Isnin hingga Jumaat"; },
+      pMqs: "Bukti audit MQS: penjimatan tenaga & keselamatan pejabat",
+      pBil: "Bil.", pWeek: "Minggu / Tarikh", pName: "Nama Pegawai", pRole: "Jawatan / Program", pSign: "Tandatangan", pNote: "Catatan",
+      pHoliday: "Cuti umum",
+      pCheckTitle: "Senarai Semak Harian Last Man Out",
+      pDate: "Tarikh", pOfficer: "Pegawai", pLights: "Lampu", pAc: "Penyaman udara", pSwitch: "Suis utama / palam",
+      pDoor: "Pintu & tingkap dikunci", pTimeOut: "Masa keluar",
+      pCheckedBy: "Disemak oleh: ______________________________     Tarikh: ________________",
+      pPrinted: function (d) { return "Dicetak pada " + d; },
       q: {
         "do":       { title: "Buat",      sub: "Segera dan penting",              hint: "Siapkan ini dahulu.",                 empty: "Belum ada apa-apa. Tugasan segera + penting masuk di sini." },
         "schedule": { title: "Jadualkan", sub: "Penting, tidak segera",           hint: "Tetapkan tarikh untuk setiap satu.",  empty: "Tambah perkara yang membawa anda ke hadapan: belajar, kesihatan, perancangan." },
@@ -383,8 +541,9 @@
     return out;
   }
 
-  var tasks = [], archive = [], meta = {}, contacts = [];
+  var tasks = [], archive = [], meta = {}, contacts = [], rota = null;
   var CONTACTS_KEY = "eisenhower-planner:contacts";
+  var ROTA_KEY = "eisenhower-planner:rota";       // Last Man Out duty rota
 
   /* ---------- Contacts (team members: name, WhatsApp, email) ---------- */
   // Malaysian-friendly: 012-345 6789 -> 60123456789; +60 12... -> 60123456789
@@ -397,6 +556,19 @@
     return d.length >= 10 && d.length <= 15 ? d : "invalid";
   }
   function validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+  // "Giliran LMO" column: Ya/Y/Yes/1/TRUE or Tidak/N/No/0/FALSE; anything else means "not stated"
+  function yesNo(v) {
+    if (v === true || v === false) return v;
+    var s = String(v === null || v === undefined ? "" : v).trim().toLowerCase();
+    if (/^(ya|y|yes|1|true)$/.test(s)) return true;
+    if (/^(tidak|tak|n|no|0|false)$/.test(s)) return false;
+    return null;
+  }
+  var KJ_RE = /ketua jabatan|head of department|^kj$/i;
+  // Everyone with a role takes turns, except the Head of Department
+  function defaultRota(role) { return !!role && !KJ_RE.test(role); }
+  function cleanRole(v) { return String(v || "").trim().replace(/\s+/g, " ").slice(0, 40); }
+  function cleanProg(v) { return String(v || "").trim().toUpperCase().replace(/\s+/g, "").slice(0, 20); }
   function normContact(c) {
     if (!c || typeof c !== "object") return null;
     var name = String(c.name || "").trim().slice(0, 60);
@@ -404,20 +576,33 @@
     var email = String(c.email || "").trim().slice(0, 120);
     if (phone === "invalid") phone = "";
     if (email && !validEmail(email)) email = "";
-    if (!name || (!phone && !email)) return null;
-    return { id: typeof c.id === "string" && c.id ? c.id.slice(0, 40) : uid(), name: name, phone: phone, email: email };
+    if (!name) return null;   // name-only contacts are allowed (staff list for the rota)
+    var role = cleanRole(c.role), prog = cleanProg(c.prog), rota = yesNo(c.rota);
+    return { id: typeof c.id === "string" && c.id ? c.id.slice(0, 40) : uid(), name: name, phone: phone, email: email,
+      role: role, prog: prog, rota: rota === null ? defaultRota(role) : rota };
   }
+  // Same name = same person: filled-in fields from later rows win; "rota" changes only when stated
   function cleanContacts(arr) {
     var out = [], byName = Object.create(null);
     (Array.isArray(arr) ? arr : []).forEach(function (c) {
       var n = normContact(c);
       if (!n) return;
-      var k = n.name.toLowerCase();
-      if (byName[k]) { Object.assign(byName[k], { phone: n.phone || byName[k].phone, email: n.email || byName[k].email }); return; }
+      var k = n.name.toLowerCase(), o = byName[k];
+      if (o) {
+        if (yesNo(c.rota) !== null || (!o.role && n.role)) o.rota = n.rota;
+        ["phone", "email", "role", "prog"].forEach(function (f) { if (n[f]) o[f] = n[f]; });
+        return;
+      }
       byName[k] = n; out.push(n);
     });
     return out;
   }
+  function contactById(id) {
+    if (!id) return null;
+    for (var i = 0; i < contacts.length; i++) if (contacts[i].id === id) return contacts[i];
+    return null;
+  }
+  function reachable(c) { return !!(c && (c.phone || c.email)); }
   function contactFor(name) {
     var k = String(name || "").trim().toLowerCase();
     if (!k) return null;
@@ -435,13 +620,14 @@
     contacts.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (c) {
       var o = document.createElement("option");
       o.value = c.name;
-      o.label = [c.phone ? "+" + c.phone : "", c.email].filter(Boolean).join(" \u00b7 ");
+      o.label = [c.phone ? "+" + c.phone : "", c.email].filter(Boolean).join(" \u00b7 ") || [c.role, c.prog].filter(Boolean).join(" \u00b7 ");
       dl.appendChild(o);
     });
   }
 
   function loadAll() {
     contacts = cleanContacts(readJSON(CONTACTS_KEY, []));
+    loadRota();
     var seen = Object.create(null);
     tasks = cleanList(readJSON(KEY, []), seen);
     archive = cleanList(readJSON(ARCHIVE_KEY, []), seen);
@@ -678,7 +864,7 @@
           href: calUrl, title: T("addToCal", t.text), "aria-label": T("addToCal", t.text),
           html: ICONS.cal + "<span>Google Calendar</span>" }));
         if (!isDel) return;
-        if (c) {
+        if (reachable(c)) {
           var due = t.date ? longDate(t.date) : "";
           var msg = T("msgBody", c.name, t.text, due, calUrl);
           var mark = function () { t.notifiedAt = Date.now(); save(); setTimeout(refreshMeta, 0); };
@@ -691,9 +877,7 @@
             "aria-label": T("mailAria", c.name, t.text), title: T("mailAria", c.name, t.text),
             html: ICONS.mail + "<span>" + escapeHtml(T("cEmail")) + "</span>", onclick: mark }));
         } else if (t.who) {
-          share.appendChild(h("button", { class: "cal-link add-contact", type: "button", "data-role": "addc",
-            html: ICONS.user + "<span>" + escapeHtml(T("saveContact")) + "</span>",
-            onclick: function () { openContacts({ name: t.who }); } }));
+          share.appendChild(contactFixButton(c, t.who, null, { "data-role": "addc" }));
         }
         if (t.notifiedAt) share.appendChild(h("span", { class: "badge badge-ok", text: "\u2713 " + T("notified") }));
       }
@@ -788,6 +972,7 @@
     $("starter").hidden = tasks.length > 0 || archive.length > 0;
     renderReviewBanner();
     if (typeof renderRemindBanner === "function") renderRemindBanner();
+    renderLmoBanner();
   }
 
   function flash(q) {
@@ -1143,17 +1328,17 @@
     var L = function (ms, en) { return bm ? ms : en; };
 
     var cur = [
-      { text: L("Hantar laporan PSM kepada penyelia", "Submit final-year project report to supervisor"), q: "do", created: at(1, 9) },
-      { text: L("Semak markah kuiz kelas petang", "Mark the afternoon class quiz"), q: "do", created: at(0, 8), reactive: true },
-      { text: L("Ulangkaji Bab 4 untuk peperiksaan akhir", "Revise Chapter 4 for the final exam"), q: "schedule", date: dateIn(2), created: at(2, 10) },
-      { text: L("Sediakan slaid kuliah minggu depan", "Prepare next week's lecture slides"), q: "schedule", date: "", created: at(1, 15) },
-      { text: L("Sesi senaman 30 minit", "30-minute workout"), q: "schedule", date: dateIn(1), created: at(0, 7) },
-      { text: L("Kemas kini borang kehadiran kelab", "Update the club attendance form"), q: "delegate", who: "Aiman", date: dateIn(1), status: "doing", statusAt: at(1, 16), statusNote: L("Separuh siap", "Half done"), notifiedAt: at(1, 12), created: at(1, 11) },
-      { text: L("Balas mesej kumpulan WhatsApp kelab", "Reply to the club WhatsApp group"), q: "delegate", who: "Siti", date: dateIn(-1), notifiedAt: at(6, 10), created: at(6, 9) },
-      { text: L("Tonton video ulasan telefon baharu", "Watch new phone review videos"), q: "delete", created: at(0, 21) }
+      { text: L("Siapkan minit Mesyuarat Jabatan Bil. 3/2026", "Finish the minutes of Department Meeting 3/2026"), q: "do", created: at(1, 9) },
+      { text: L("Edarkan memo mesyuarat tergempar kepada semua staf", "Circulate the emergency meeting memo to all staff"), q: "do", created: at(0, 8), reactive: true },
+      { text: L("Sediakan agenda Mesyuarat Jabatan akan datang", "Prepare the agenda for the next department meeting"), q: "schedule", date: dateIn(2), created: at(2, 10) },
+      { text: L("Kemas kini fail meja (MQS)", "Update the desk file (MQS)"), q: "schedule", date: "", created: at(1, 15) },
+      { text: L("Semak rekod Last Man Out minggu ini", "Check this week's Last Man Out records"), q: "schedule", date: dateIn(1), created: at(0, 7) },
+      { text: L("Kemas kini senarai kehadiran mesyuarat", "Update the meeting attendance list"), q: "delegate", who: "Aiman", date: dateIn(1), status: "doing", statusAt: at(1, 16), statusNote: L("Separuh siap", "Half done"), notifiedAt: at(1, 12), created: at(1, 11) },
+      { text: L("Tempah bilik mesyuarat untuk Mesyuarat Jabatan", "Book the meeting room for the department meeting"), q: "delegate", who: "Siti", date: dateIn(-1), notifiedAt: at(6, 10), created: at(6, 9) },
+      { text: L("Hadiri setiap webinar vendor yang dijemput", "Join every vendor webinar you are invited to"), q: "delete", created: at(0, 21) }
     ];
     // One scheduled task that is already due, to show automatic promotion
-    cur.push({ text: L("Draf proposal geran penyelidikan", "Draft the research grant proposal"), q: "schedule", date: todayISO(now - DAY), created: at(5, 9) });
+    cur.push({ text: L("Draf edaran jabatan untuk semester baharu", "Draft the department circular for the new semester"), q: "schedule", date: todayISO(now - DAY), created: at(5, 9) });
 
     function doneItem(ms, en, q, daysAgo, hour, extra) {
       var o = { text: L(ms, en), q: q, done: true, doneQ: q, created: at(daysAgo + 1, 8), doneAt: at(daysAgo, hour), archivedAt: at(daysAgo, hour + 1) };
@@ -1163,27 +1348,27 @@
     var arch = [
       // This week
       doneItem("Isi borang tuntutan perjalanan", "Fill in the travel claim form", "do", 6, 10),
-      doneItem("Jawab emel pelajar tentang tugasan", "Answer student emails about the assignment", "do", 6, 15),
-      doneItem("Baiki slaid pembentangan kolokium", "Fix the colloquium presentation slides", "do", 5, 11, { moves: [{ from: "schedule", to: "do", at: at(5, 0), auto: true }], promoted: true, origin: "schedule" }),
-      doneItem("Baca dua artikel jurnal untuk Bab 2", "Read two journal articles for Chapter 2", "schedule", 5, 20),
-      doneItem("Cetak nota untuk kelas", "Print notes for class", "delegate", 4, 9, { who: "Siti" }),
-      doneItem("Mesyuarat jabatan", "Department meeting", "do", 4, 14, { reactive: true }),
-      doneItem("Rancang jadual ulangkaji", "Plan the revision timetable", "schedule", 3, 21),
-      doneItem("Hantar markah kerja kursus", "Submit coursework marks", "do", 3, 16),
-      doneItem("Senaman pagi", "Morning workout", "schedule", 2, 7),
-      doneItem("Tempah bilik untuk bengkel", "Book a room for the workshop", "delegate", 2, 10, { who: "Hafiz" }),
-      doneItem("Tulis 500 patah perkataan tesis", "Write 500 words of the thesis", "schedule", 1, 22),
-      doneItem("Balas panggilan ibu bapa pelajar", "Return a parent's phone call", "do", 1, 12, { reactive: true }),
-      doneItem("Kemas meja kerja", "Tidy up the desk", "schedule", 0, 8),
+      doneItem("Jawab emel pertanyaan pensyarah", "Answer lecturers' email queries", "do", 6, 15),
+      doneItem("Betulkan draf minit sebelum diedarkan", "Correct the draft minutes before circulating", "do", 5, 11, { moves: [{ from: "schedule", to: "do", at: at(5, 0), auto: true }], promoted: true, origin: "schedule" }),
+      doneItem("Susun fail meja mengikut format MQS", "Organise the desk file in MQS format", "schedule", 5, 20),
+      doneItem("Cetak & edarkan memo jabatan", "Print & circulate the department memo", "delegate", 4, 9, { who: "Siti" }),
+      doneItem("Mesyuarat tergempar jabatan", "Emergency department meeting", "do", 4, 14, { reactive: true }),
+      doneItem("Rancang takwim mesyuarat semester", "Plan the semester meeting calendar", "schedule", 3, 21),
+      doneItem("Hantar laporan bulanan jabatan", "Submit the monthly department report", "do", 3, 16),
+      doneItem("Sediakan jadual Last Man Out bulan depan", "Prepare next month's Last Man Out roster", "schedule", 2, 7),
+      doneItem("Tempah bilik mesyuarat untuk bengkel", "Book a meeting room for the workshop", "delegate", 2, 10, { who: "Hafiz" }),
+      doneItem("Kemas kini senarai semak dokumen MQS", "Update the MQS document checklist", "schedule", 1, 22),
+      doneItem("Balas panggilan segera dari pejabat Pengarah", "Return an urgent call from the Director's office", "do", 1, 12, { reactive: true }),
+      doneItem("Failkan minit mesyuarat yang telah disahkan", "File the confirmed meeting minutes", "schedule", 0, 8),
       // Let go on purpose this week
-      { text: L("Susun semula folder gambar lama", "Reorganise old photo folders"), q: "delete", created: at(4, 9), archivedAt: at(3, 9), dropped: true },
+      { text: L("Format semula semua templat surat lama", "Reformat every old letter template"), q: "delete", created: at(4, 9), archivedAt: at(3, 9), dropped: true },
       { text: L("Baca semua emel promosi", "Read every promotional email"), q: "delete", created: at(3, 9), archivedAt: at(2, 9), dropped: true },
       // The week before (more reactive, so the score shows improvement)
       doneItem("Siapkan laporan segera", "Finish an urgent report", "do", 8, 10),
       doneItem("Isi borang last minute", "Fill in a last-minute form", "do", 9, 11),
       doneItem("Jawab emel bertimbun", "Clear the email backlog", "do", 10, 15),
-      doneItem("Urus aduan pelajar", "Handle a student complaint", "delegate", 11, 9),
-      doneItem("Ulangkaji ringkas", "Short revision session", "schedule", 12, 20)
+      doneItem("Urus aduan kerosakan bilik kuliah", "Handle a lecture room damage complaint", "delegate", 11, 9),
+      doneItem("Semak draf takwim jabatan", "Review the department calendar draft", "schedule", 12, 20)
     ];
     return { tasks: cur, archive: arch };
   }
@@ -1273,7 +1458,7 @@
 
   $("exportBtn").addEventListener("click", function () {
     closeMenu();
-    var data = { app: "eisenhower-planner", version: 2, exportedAt: new Date().toISOString(), tasks: tasks, archive: archive, contacts: contacts };
+    var data = { app: "eisenhower-planner", version: 3, exportedAt: new Date().toISOString(), tasks: tasks, archive: archive, contacts: contacts, rota: rota };
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = h("a", { href: URL.createObjectURL(blob), download: "jppp-smart-planner-" + todayISO() + ".json" });
     document.body.appendChild(a);
@@ -1302,8 +1487,10 @@
         tasks = tasks.concat(newTasks);
         archive = archive.concat(newArch);
         if (data && Array.isArray(data.contacts)) { contacts = cleanContacts(contacts.concat(data.contacts)); saveContacts(); }
+        if (data && data.rota && typeof data.rota === "object") mergeRota(data.rota);
         promoteDue();
         commit();
+        if ($("rotaDlg").open) renderRota();
         showToast(T("imported", newTasks.length), false);
       } catch (err) {
         showToast(T("badFile"), false);
@@ -1332,18 +1519,39 @@
      Contacts manager
      ================================================================ */
   var editingId = null;
+  // "Save contact" for a PIC not in contacts; "Complete contact" for one saved without WhatsApp no. or email
+  function contactFixButton(c, name, before, extra) {
+    var label = T(c ? "completeContact" : "saveContact");
+    var props = { class: "cal-link add-contact", type: "button", "aria-label": label + ": " + name,
+      html: ICONS.user + "<span>" + escapeHtml(label) + "</span>",
+      onclick: function () { if (before) before(); openContacts(c ? { id: c.id } : { name: name }); } };
+    Object.keys(extra || {}).forEach(function (k) { props[k] = extra[k]; });
+    return h("button", props);
+  }
+  function fillContactForm(c) {
+    var f = $("contactForm");
+    editingId = c.id;
+    f.elements.name.value = c.name; f.elements.phone.value = c.phone ? "+" + c.phone : ""; f.elements.email.value = c.email;
+    f.elements.role.value = c.role || ""; f.elements.prog.value = c.prog || "";
+    setContactMode();
+  }
+  // prefill: { name } adds a new contact with that name; { id, focus } edits an existing one
   function openContacts(prefill) {
+    var fromMenu = menu.contains(document.activeElement);
     closeMenu();
-    lastFocus = document.activeElement;
+    lastFocus = fromMenu ? menuBtn : document.activeElement;
     editingId = null;
     var f = $("contactForm");
     f.reset();
     $("contactMsg").textContent = "";
-    if (prefill && prefill.name) f.elements.name.value = prefill.name;
+    var c = prefill && prefill.id ? contactById(prefill.id) : null;
+    if (c) fillContactForm(c);
+    else if (prefill && prefill.name) f.elements.name.value = prefill.name;
     renderContacts();
     var dlg = $("contactsDlg");
     if (!dlg.open) { if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", ""); }
-    (prefill && prefill.name ? f.elements.phone : f.elements.name).focus();
+    var target = c ? (f.elements[prefill.focus] || (!c.phone ? f.elements.phone : f.elements.email)) : prefill && prefill.name ? f.elements.phone : f.elements.name;
+    target.focus();
   }
   function closeContacts() {
     var dlg = $("contactsDlg");
@@ -1362,18 +1570,18 @@
     $("contactSearch").hidden = contacts.length < 6;
     if (!contacts.length) { list.appendChild(h("li", { class: "c-empty", text: T("cEmpty") })); return; }
     contacts.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
-      .filter(function (c) { return !q || (c.name + " " + c.phone + " " + c.email).toLowerCase().indexOf(q) >= 0; })
+      .filter(function (c) { return !q || (c.name + " " + c.phone + " " + c.email + " " + c.role + " " + c.prog).toLowerCase().indexOf(q) >= 0; })
       .forEach(function (c) {
+        var sub = [c.role, c.prog].filter(Boolean).join(" · ");
+        var reach = [c.phone ? "+" + c.phone : "", c.email].filter(Boolean).join("  ·  ");
         list.appendChild(h("li", { class: "c-row" }, [
           h("div", { class: "c-info" }, [
             h("p", { class: "c-name", text: c.name }),
-            h("p", { class: "c-detail", text: [c.phone ? "+" + c.phone : "", c.email].filter(Boolean).join("  ·  ") })
+            sub ? h("p", { class: "c-detail", text: sub }) : null,
+            h("p", { class: "c-detail" + (reach ? "" : " c-noreach"), text: reach || T("cNoReach") })
           ]),
           h("button", { class: "tiny-btn", type: "button", "aria-label": T("cEdit") + ": " + c.name, html: ICONS.edit, onclick: function () {
-            editingId = c.id;
-            var f = $("contactForm");
-            f.elements.name.value = c.name; f.elements.phone.value = c.phone ? "+" + c.phone : ""; f.elements.email.value = c.email;
-            setContactMode(); f.elements.name.focus();
+            fillContactForm(c); $("contactForm").elements.name.focus();
           } }),
           h("button", { class: "tiny-btn", type: "button", "aria-label": T("cDel") + ": " + c.name, html: ICONS.trash, onclick: function () {
             if (!window.confirm(T("cDelete", c.name))) return;
@@ -1388,24 +1596,33 @@
   $("contactForm").addEventListener("submit", function (e) {
     e.preventDefault();
     var f = e.target, msg = $("contactMsg");
-    var name = f.elements.name.value.trim(), phoneRaw = f.elements.phone.value.trim(), email = f.elements.email.value.trim();
-    if (!name || (!phoneRaw && !email)) { msg.textContent = T("cNeed"); return; }
+    var name = f.elements.name.value.trim().slice(0, 60), phoneRaw = f.elements.phone.value.trim(), email = f.elements.email.value.trim();
+    var role = cleanRole(f.elements.role.value), prog = cleanProg(f.elements.prog.value);
+    if (!name) { msg.textContent = T("cNeed"); f.elements.name.focus(); return; }
     var phone = phoneRaw ? normPhone(phoneRaw) : "";
     if (phoneRaw && (phone === "invalid" || !phone)) { msg.textContent = T("cBadPhone"); f.elements.phone.focus(); return; }
     if (email && !validEmail(email)) { msg.textContent = T("cBadEmail"); f.elements.email.focus(); return; }
-    var existing = editingId ? contacts.filter(function (c) { return c.id === editingId; })[0] : contactFor(name);
+    var existing = editingId ? contactById(editingId) : contactFor(name);
     if (existing) {
-      var oldName = existing.name;
-      existing.name = name; existing.phone = phone; existing.email = email;
-      // Keep tasks linked when a contact is renamed
-      if (oldName !== name) tasks.forEach(function (t) { if (t.who.toLowerCase() === oldName.toLowerCase()) t.who = name; });
+      var oldName = existing.name, oldRole = existing.role;
+      if (!editingId) {   // same name typed again: keep what is already known
+        phone = phone || existing.phone; email = email || existing.email; role = role || existing.role; prog = prog || existing.prog;
+      }
+      existing.name = name; existing.phone = phone; existing.email = email; existing.role = role; existing.prog = prog;
+      if (role !== oldRole && (!oldRole || KJ_RE.test(role))) existing.rota = defaultRota(role);
+      // Keep tasks and rota turns linked when a contact is renamed
+      if (oldName !== name) {
+        tasks.forEach(function (t) { if (t.who.toLowerCase() === oldName.toLowerCase()) t.who = name; });
+        rota.entries.forEach(function (e) { if (e.cid === existing.id) e.name = name; });
+        saveRota(true);
+      }
       save();
     } else {
-      contacts.push({ id: uid(), name: name.slice(0, 60), phone: phone, email: email });
+      contacts.push({ id: uid(), name: name, phone: phone, email: email, role: role, prog: prog, rota: defaultRota(role) });
     }
     editingId = null;
     f.reset();
-    msg.textContent = T("cSaved", name);
+    msg.textContent = phone || email ? T("cSaved", name) : T("cSavedNoReach", name);
     saveContacts();
     renderContacts();
     render();
@@ -1413,7 +1630,12 @@
   });
   $("contactCancel").addEventListener("click", function () { editingId = null; $("contactForm").reset(); $("contactMsg").textContent = ""; setContactMode(); });
   $("contactsClose").addEventListener("click", closeContacts);
-  $("contactsDlg").addEventListener("close", function () { render(); if (lastFocus && lastFocus.focus && lastFocus.isConnected) lastFocus.focus(); });
+  $("contactsDlg").addEventListener("close", function () {
+    render();
+    // Opened from the rota dialog: refresh it and go back to the button that opened contacts
+    if ($("rotaDlg").open) { refreshRota(lastFocus); return; }
+    if (lastFocus && lastFocus.focus && lastFocus.isConnected) lastFocus.focus();
+  });
   $("contactsDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeContacts(); });
   $("contactsBtn").addEventListener("click", function () { openContacts(); });
 
@@ -1438,20 +1660,37 @@
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows.filter(function (r) { return r.some(function (c) { return c.trim(); }); });
   }
-  function contactsFromRows(rows) {
-    if (!rows.length) return [];
-    var head = rows[0].map(function (x) { return x.trim().toLowerCase(); });
-    var col = { name: -1, phone: -1, email: -1 };
-    head.forEach(function (x, i) {
+  // Which column holds what, from a header row (BM or EN). n = how many columns were recognised.
+  function headerCols(row) {
+    var col = { name: -1, phone: -1, email: -1, rota: -1, role: -1, prog: -1, n: 0 };
+    row.forEach(function (x, i) {
+      x = String(x).trim().toLowerCase();
+      if (!x) return;
       if (col.email < 0 && /e-?mel|e-?mail/.test(x)) col.email = i;
       else if (col.phone < 0 && /whats|wasap|wa\b|phone|telefon|tel|no\.?\s*hp|h\/p|mobile|bimbit/.test(x)) col.phone = i;
+      else if (col.rota < 0 && /giliran|rota|lmo|last man/.test(x)) col.rota = i;
+      else if (col.role < 0 && /jawatan|role|peranan/.test(x)) col.role = i;
+      else if (col.prog < 0 && /program/.test(x)) col.prog = i;
       else if (col.name < 0 && /nama|name/.test(x)) col.name = i;
+      else return;
+      col.n++;
     });
-    var hasHeader = col.name >= 0 || col.phone >= 0 || col.email >= 0;
-    if (!hasHeader) col = { name: 0, phone: 1, email: 2 };
+    return col;
+  }
+  function contactsFromRows(rows) {
+    if (!rows.length) return [];
+    // The header may sit below a title row or two (look in the first 5 rows)
+    var hi = -1, col = null;
+    for (var i = 0; i < Math.min(5, rows.length) && hi < 0; i++) {
+      var c = headerCols(rows[i]);
+      if (c.n >= 2) { hi = i; col = c; }
+    }
+    if (hi < 0) { col = headerCols(rows[0]); if (col.n) hi = 0; }
+    if (hi < 0) col = { name: 0, phone: 1, email: 2, role: 3, prog: 4, rota: 5 };   // no header: by position
     if (col.name < 0) col.name = 0;
-    return (hasHeader ? rows.slice(1) : rows).map(function (r) {
-      return { name: r[col.name] || "", phone: col.phone >= 0 ? r[col.phone] || "" : "", email: col.email >= 0 ? r[col.email] || "" : "" };
+    function cell(r, k) { return col[k] >= 0 ? r[col[k]] || "" : ""; }
+    return rows.slice(hi + 1).map(function (r) {
+      return { name: cell(r, "name"), phone: cell(r, "phone"), email: cell(r, "email"), role: cell(r, "role"), prog: cell(r, "prog"), rota: cell(r, "rota") };
     });
   }
   $("contactImportBtn").addEventListener("click", function () { $("contactImportFile").click(); });
@@ -1461,10 +1700,13 @@
     var reader = new FileReader();
     reader.onload = function () {
       var before = contacts.length;
-      var incoming = cleanContacts(contactsFromRows(parseCSV(String(reader.result))));
+      var rows = contactsFromRows(parseCSV(String(reader.result)));
+      var incoming = cleanContacts(rows);
       if (!incoming.length) { $("contactMsg").textContent = T("cBadCsv"); e.target.value = ""; return; }
-      contacts = cleanContacts(contacts.concat(incoming));
+      // Merge the raw rows, so a blank "Giliran LMO" cell keeps each person's current rota choice
+      contacts = cleanContacts(contacts.concat(rows));
       saveContacts(); renderContacts(); render();
+      if ($("rotaDlg").open) renderRota();
       $("contactMsg").textContent = T("cImported", incoming.length) + (contacts.length - before < incoming.length ? " (" + (incoming.length - (contacts.length - before)) + " updated)" : "");
       e.target.value = "";
     };
@@ -1477,12 +1719,13 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
   function csvCell(v) { v = String(v || ""); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function contactCsvHead() { return [T("cName"), T("cPhone"), T("cEmail"), T("cRole"), T("cProg"), T("cRotaCol")].join(","); }
   $("contactTemplateBtn").addEventListener("click", function () {
-    downloadText("contacts-template.csv", "﻿" + [T("cName"), T("cPhone"), T("cEmail")].join(",") + "\n" + "Nama Contoh,012-345 6789,nama@kptm.edu.my\n", "text/csv");
+    downloadText("contacts-template.csv", "﻿" + contactCsvHead() + "\n" + T("cSample") + "\n", "text/csv");
   });
   $("contactExportBtn").addEventListener("click", function () {
-    var lines = [[T("cName"), T("cPhone"), T("cEmail")].join(",")].concat(contacts.map(function (c) {
-      return [c.name, c.phone ? "+" + c.phone : "", c.email].map(csvCell).join(",");
+    var lines = [contactCsvHead()].concat(contacts.map(function (c) {
+      return [c.name, c.phone ? "+" + c.phone : "", c.email, c.role, c.prog, c.rota ? T("cYes") : T("cNo")].map(csvCell).join(",");
     }));
     downloadText("contacts-" + todayISO() + ".csv", "﻿" + lines.join("\n") + "\n", "text/csv");
   });
@@ -1526,9 +1769,7 @@
       if (c && c.email) btns.push(h("a", { class: "cal-link mail-link",
         href: "mailto:" + encodeURIComponent(c.email) + "?subject=" + encodeURIComponent(T("groupSubject", from, g.tasks.length)) + "&body=" + encodeURIComponent(msg.replace(/\*/g, "")),
         "aria-label": T("mailAria", g.name, T("nOpen", g.tasks.length)), html: ICONS.mail + "<span>" + escapeHtml(T("cEmail")) + "</span>", onclick: mark }));
-      if (!c) btns.push(h("button", { class: "cal-link add-contact", type: "button",
-        html: ICONS.user + "<span>" + escapeHtml(T("saveContact")) + "</span>",
-        onclick: function () { closeSendAll(); openContacts({ name: g.name }); } }));
+      if (!reachable(c)) btns.push(contactFixButton(c, g.name, closeSendAll));
       var allNotified = g.tasks.every(function (t) { return t.notifiedAt; });
       root.appendChild(h("li", { class: "send-row" }, [
         h("div", { class: "send-head" }, [
@@ -1658,8 +1899,7 @@
         var mark = function () { t.remindedAt = Date.now(); afterSend(); };
         if (c && c.phone) btns.push(waLink(c.phone, msg, T("remind"), T("waAria", c.name, t.text), mark));
         if (c && c.email) btns.push(mailLink(c.email, T("remindSubject", t.text), msg, T("cEmail"), T("mailAria", c.name, t.text), mark));
-        if (!c) btns.push(h("button", { class: "cal-link add-contact", type: "button", html: ICONS.user + "<span>" + escapeHtml(T("saveContact")) + "</span>",
-          onclick: function () { closeMonitor(); openContacts({ name: t.who }); } }));
+        if (!reachable(c)) btns.push(contactFixButton(c, t.who, closeMonitor));
         if (isToday(t.remindedAt)) btns.push(h("span", { class: "badge badge-ok", text: "✓ " + T("remindedToday") }));
         ul.appendChild(h("li", { class: "m-row" + (n < 0 ? " is-late" : "") }, [
           h("div", { class: "m-main" }, [
@@ -1694,7 +1934,7 @@
       var done = g.items.length - g.open.length, pct = Math.round(done / g.items.length * 100);
       var last = Math.max.apply(null, g.items.map(lastActivity));
       var btns = [];
-      if (g.open.length && g.c) {
+      if (g.open.length && reachable(g.c)) {
         var lines = g.open.slice().sort(sortItems("schedule")).map(function (t, i) {
           return (i + 1) + ". *" + t.text + "*" + (t.date ? " (" + T("dueShort").toLowerCase() + ": " + longDate(t.date) + ")" : "");
         }).join("\n");
@@ -1703,8 +1943,7 @@
         if (g.c.phone) btns.push(waLink(g.c.phone, msg, T("askStatus"), T("waAria", g.c.name, T("askStatus")), mark));
         if (g.c.email) btns.push(mailLink(g.c.email, T("askSubject"), msg, T("cEmail"), T("mailAria", g.c.name, T("askStatus")), mark));
       } else if (g.open.length) {
-        btns.push(h("button", { class: "cal-link add-contact", type: "button", html: ICONS.user + "<span>" + escapeHtml(T("saveContact")) + "</span>",
-          onclick: function () { closeMonitor(); openContacts({ name: g.name }); } }));
+        btns.push(contactFixButton(g.c, g.name, closeMonitor));
       }
       var asked = Math.max.apply(null, g.open.map(function (t) { return t.askedAt || 0; }).concat([0]));
       var flags = [];
@@ -1765,6 +2004,584 @@
   $("monitorDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeMonitor(); });
 
   /* ================================================================
+     Last Man Out rota (MQS): who closes the office each week (or day),
+     and which reminders are due: email + calendar 2 days before the
+     duty starts, WhatsApp on the day. Stored on this device only.
+     ================================================================ */
+  var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  var CHS = ["email", "cal", "wa"];
+  var GUIDE_URL = "https://github.com/hafizi-ui/planner/blob/main/automation/PANDUAN.md";
+  // Shared contract with automation/LastManOut.gs (Google Sheet tab "Giliran"): keep these exact
+  var ROTA_CSV_HEAD = ["ID", "Mula", "Tamat", "Masa mula", "Masa tamat", "Nama", "Emel", "No WhatsApp", "Jawatan", "Program", "Cuti",
+    "Emel dihantar", "Kalendar dihantar", "WhatsApp dihantar"];
+
+  function sortEntries(list) { list.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }); }
+  function normRota(r) {
+    r = r && typeof r === "object" ? r : {};
+    var out = { v: 1, mode: r.mode === "day" ? "day" : "week", order: r.order === "az" ? "az" : "prog",
+      start: typeof r.start === "string" && ISO_DATE.test(r.start) ? r.start : "",
+      timeFrom: TIME_RE.test(r.timeFrom) ? r.timeFrom : "16:45", timeTo: TIME_RE.test(r.timeTo) ? r.timeTo : "17:15",
+      gas: r.gas === true, changedAt: num(r.changedAt), exportedAt: num(r.exportedAt), entries: [] };
+    var seen = Object.create(null);
+    (Array.isArray(r.entries) ? r.entries : []).forEach(function (e) {
+      if (!e || typeof e.start !== "string" || !ISO_DATE.test(e.start)) return;
+      var id = "lmo-" + e.start;   // periods never overlap, so the start date is a stable id
+      if (seen[id]) return;
+      seen[id] = true;
+      var s = e.sent && typeof e.sent === "object" ? e.sent : {};
+      out.entries.push({ id: id, start: e.start,
+        end: typeof e.end === "string" && ISO_DATE.test(e.end) && e.end >= e.start ? e.end : e.start,
+        cid: typeof e.cid === "string" ? e.cid.slice(0, 40) : "",
+        name: typeof e.name === "string" ? e.name.trim().slice(0, 60) : "",
+        off: e.off === true, sent: { email: num(s.email), cal: num(s.cal), wa: num(s.wa) } });
+    });
+    sortEntries(out.entries);
+    return out;
+  }
+  function loadRota() { rota = normRota(readJSON(ROTA_KEY, null)); return rota; }
+  function saveRota(changed) {
+    if (changed) rota.changedAt = Date.now();
+    sortEntries(rota.entries);
+    if (!writeJSON(ROTA_KEY, rota)) showToast(T("saveFail"), false);
+  }
+  // Backup import: take the incoming rota if this device has none; otherwise this device wins,
+  // except that a notice sent on either device counts as sent
+  function mergeRota(incoming) {
+    var inc = normRota(incoming);
+    if (!rota.entries.length) { rota = inc; saveRota(); return; }
+    var byId = Object.create(null), added = 0;
+    rota.entries.forEach(function (e) { byId[e.id] = e; });
+    inc.entries.forEach(function (x) {
+      var e = byId[x.id];
+      if (e) { CHS.forEach(function (ch) { e.sent[ch] = Math.max(e.sent[ch], x.sent[ch]); }); return; }
+      if (!rota.entries.some(function (y) { return overlaps(x, y); })) { rota.entries.push(x); added++; }
+    });
+    saveRota(added > 0);
+  }
+
+  /* ---------- Dates (local, ISO "YYYY-MM-DD"; working days Mon-Fri) ---------- */
+  function parseISO(iso) { var p = iso.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2], 12); }
+  function addDays(iso, n) { var d = parseISO(iso); d.setDate(d.getDate() + n); return todayISO(d.getTime()); }
+  function dow(iso) { return parseISO(iso).getDay(); }
+  function isWorkday(iso) { var d = dow(iso); return d >= 1 && d <= 5; }
+  function nextWorkday(iso) { while (!isWorkday(iso)) iso = addDays(iso, 1); return iso; }
+  function workdays(from, to) { var n = 0; for (var d = from; d <= to; d = addDays(d, 1)) if (isWorkday(d)) n++; return n; }
+  function overlaps(a, b) { return a.start <= b.end && b.start <= a.end; }
+  function shortDate(iso, opts) { return parseISO(iso).toLocaleDateString(T("locale"), opts); }
+  function defaultStart() { var d = addDays(todayISO(), 1); while (dow(d) !== 1) d = addDays(d, 1); return d; }   // next Monday
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function dm(ts) { var d = new Date(ts); return d.getDate() + "/" + (d.getMonth() + 1); }
+  function stampText(ts) { if (!ts) return ""; var d = new Date(ts); return todayISO(ts) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes()); }
+
+  // count periods from a date: weekly = to that week's Friday, then Mon-Fri; daily = one working day each
+  function makePeriods(from, count, mode) {
+    var out = [], d = nextWorkday(from);
+    while (out.length < count) {
+      if (mode === "day") { out.push({ start: d, end: d }); d = nextWorkday(addDays(d, 1)); }
+      else { var fri = addDays(d, 5 - dow(d)); out.push({ start: d, end: fri }); d = addDays(fri, 3); }
+    }
+    return out;
+  }
+
+  /* ---------- Who and when ---------- */
+  function entryContact(e) { return contactById(e.cid) || contactFor(e.name); }
+  function personName(e) { var c = entryContact(e); return c ? c.name : e.name; }
+  function anySent(e) { return CHS.some(function (ch) { return e.sent[ch] > 0; }); }
+  function resetSent(e) { e.sent = { email: 0, cal: 0, wa: 0 }; }
+  // Locked turns (already notified, or starting within 2 days) never move when the rota is rebuilt or shifted
+  function isLocked(e, today) { return anySent(e) || e.start <= addDays(today || todayISO(), 2); }
+  function newEntry(p, c) {
+    return { id: "lmo-" + p.start, start: p.start, end: p.end, cid: c ? c.id : "", name: c ? c.name : "", off: false, sent: { email: 0, cal: 0, wa: 0 } };
+  }
+  function entryOn(iso) {
+    for (var i = 0; i < rota.entries.length; i++) { var e = rota.entries[i]; if (e.start <= iso && iso <= e.end) return e; }
+    return null;
+  }
+  function currentEntry(today) { var e = entryOn(today); return e && !e.off ? e : null; }
+  function nextEntry(today) {
+    for (var i = 0; i < rota.entries.length; i++) { var e = rota.entries[i]; if (e.start > today && !e.off && (e.cid || e.name)) return e; }
+    return null;
+  }
+  // Members in turn order: "prog" = no programme first, then programme A-Z, then list (org chart) order
+  function rotaMembers() {
+    var list = contacts.filter(function (c) { return c.rota; });
+    if (rota.order === "az") return list.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return list.map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) {
+      var pa = a.c.prog, pb = b.c.prog;
+      if (!pa !== !pb) return pa ? 1 : -1;
+      if (pa !== pb) return pa < pb ? -1 : 1;
+      return a.i - b.i;
+    }).map(function (x) { return x.c; });
+  }
+
+  // One round (everyone once) from a start date. Locked turns stay; nobody is given two turns in the round.
+  function generateRota(start) {
+    var members = rotaMembers();
+    if (!members.length) return -1;
+    var today = todayISO(), before = [], keptAfter = [];
+    rota.entries = rota.entries.filter(function (e) {
+      if (e.start < start) { before.push(e); return true; }
+      if (isLocked(e, today)) { keptAfter.push(e); return true; }
+      return false;
+    });
+    var startIdx = 0;
+    for (var i = before.length - 1; i >= 0; i--) {
+      if (before[i].off || !(before[i].cid || before[i].name)) continue;
+      var lc = entryContact(before[i]), at = lc ? members.indexOf(lc) : -1;
+      if (at >= 0) startIdx = at + 1;
+      break;
+    }
+    var hasTurn = Object.create(null);
+    keptAfter.forEach(function (e) { var c = !e.off && entryContact(e); if (c) hasTurn[c.id] = true; });
+    var queue = [];
+    for (var k = 0; k < members.length; k++) {
+      var m = members[(startIdx + k) % members.length];
+      if (!hasTurn[m.id]) queue.push(m);
+    }
+    var kept = rota.entries.slice(), d = start, added = 0;
+    while (queue.length) {
+      var p = makePeriods(d, 1, rota.mode)[0];
+      d = addDays(p.end, 1);
+      if (kept.some(function (e) { return overlaps(p, e); })) continue;
+      rota.entries.push(newEntry(p, queue.shift()));
+      added++;
+    }
+    saveRota(true);
+    return added;
+  }
+  function extendRota() {
+    var n = rota.entries.length;
+    return generateRota(n ? addDays(rota.entries[n - 1].end, 1) : rota.start || defaultStart());
+  }
+  // Give turn e to someone else: they swap with their nearest upcoming turn, so both keep one turn each
+  function swapTurn(e, cid) {
+    var c = contactById(cid);
+    if (!c) return null;
+    var today = todayISO(), oldC = entryContact(e), oldName = personName(e), f = null;
+    if (oldC === c) return null;
+    if (e.end >= today && (oldC || oldName)) {
+      var t0 = parseISO(e.start).getTime();
+      rota.entries.forEach(function (x) {
+        if (x === e || x.off || x.end < today || entryContact(x) !== c) return;
+        if (!f || Math.abs(parseISO(x.start) - t0) < Math.abs(parseISO(f.start) - t0)) f = x;
+      });
+    }
+    var told = [];
+    if (f) {
+      if (!window.confirm(T("rSwapConfirm", c.name, lmoRange(e), oldName, lmoRange(f)))) return null;
+      if (anySent(f)) told.push(c.name);
+      f.cid = oldC ? oldC.id : ""; f.name = oldName; resetSent(f);
+    }
+    if (anySent(e) && oldName) told.unshift(oldName);
+    e.cid = c.id; e.name = c.name; resetSent(e);
+    saveRota(true);
+    return { swapped: !!f, told: told };
+  }
+  // Public holiday / no duty: everyone from this turn on moves one turn later and a turn is added at the end.
+  // Unticking moves them back and removes that last turn. Returns names to tell (they were already notified).
+  function setOff(e, on) {
+    var today = todayISO();
+    if (!!e.off === !!on) return [];
+    var later = rota.entries.filter(function (x) { return x.start > e.start && !x.off && !isLocked(x, today); });
+    var told = [];
+    if (on) {
+      if (anySent(e) && personName(e)) told.push(personName(e));
+      var carry = { cid: e.cid, name: e.name };
+      e.off = true; e.cid = ""; e.name = "";
+      if (carry.cid || carry.name) {
+        later.forEach(function (x) { var t = { cid: x.cid, name: x.name }; x.cid = carry.cid; x.name = carry.name; carry = t; });
+        var last = rota.entries[rota.entries.length - 1];
+        var ne = newEntry(makePeriods(addDays(last.end, 1), 1, rota.mode)[0], null);
+        ne.cid = carry.cid; ne.name = carry.name;
+        rota.entries.push(ne);
+      }
+    } else {
+      e.off = false;
+      var chain = [e].concat(later);
+      if (chain.length > 1) {
+        for (var i = 0; i < chain.length - 1; i++) { chain[i].cid = chain[i + 1].cid; chain[i].name = chain[i + 1].name; }
+        var gone = chain[chain.length - 1];
+        rota.entries = rota.entries.filter(function (x) { return x !== gone; });
+      }
+    }
+    saveRota(true);
+    return told;
+  }
+
+  /* ---------- Reminders that are due ---------- */
+  // Email & calendar from 2 days before the start (Saturday for a Monday duty); WhatsApp on the first day.
+  // Late once that day has passed; nothing is shown after the duty ends.
+  function lmoDue(today) {
+    today = today || todayISO();
+    var out = [];
+    rota.entries.forEach(function (e) {
+      if (e.off || !(e.cid || e.name) || today > e.end) return;
+      var chs = [], early = addDays(e.start, -2);
+      if (!rota.gas) ["email", "cal"].forEach(function (ch) { if (today >= early && !e.sent[ch]) chs.push({ ch: ch, late: today > early }); });
+      if (today >= e.start && !e.sent.wa) chs.push({ ch: "wa", late: today > e.start });
+      if (chs.length) out.push({ e: e, c: entryContact(e), chs: chs });
+    });
+    return out;
+  }
+  function chName(ch, lower) {
+    if (ch === "wa") return T("chWa");
+    var s = T(ch === "email" ? "chEmail" : "chCal");
+    return lower ? s.toLowerCase() : s;
+  }
+
+  /* ---------- Message text ---------- */
+  function lmoPeriodText(e) { return e.start === e.end ? longDate(e.start) : longDate(e.start) + T("rTo") + longDate(e.end); }
+  function lmoRange(e) {
+    var y = { day: "numeric", month: "short", year: "numeric" };
+    if (e.start === e.end) return shortDate(e.start, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+    if (e.start.slice(0, 7) === e.end.slice(0, 7)) return parseISO(e.start).getDate() + "–" + shortDate(e.end, y);
+    return shortDate(e.start, { day: "numeric", month: "short" }) + " – " + shortDate(e.end, y);
+  }
+  function lmoWaMsg(e, c) {
+    return T("lmoWaMsg", c ? c.name : e.name, e.start === e.end, lmoPeriodText(e), rota.timeFrom, T("lmoList"), T("lmoSignoff"));
+  }
+  function lmoMail(e, c) {
+    var period = lmoPeriodText(e);
+    return { subject: T("lmoMailSubject", period),
+      body: T("lmoMailBody", c ? c.name : e.name, period, rota.timeFrom, rota.timeTo, T("lmoList"), T("lmoSignoff")) };
+  }
+
+  /* ---------- CSV for the Google Sheet (Apps Script) ---------- */
+  function rotaCsv() {
+    var lines = [ROTA_CSV_HEAD.join(",")];
+    rota.entries.forEach(function (e) {
+      var c = e.off ? null : entryContact(e);
+      lines.push([e.id, e.start, e.end, rota.timeFrom, rota.timeTo, e.off ? "" : personName(e),
+        c ? c.email : "", c ? c.phone : "", c ? c.role : "", c ? c.prog : "", e.off ? "Ya" : "",
+        stampText(e.sent.email), stampText(e.sent.cal), stampText(e.sent.wa)].map(csvCell).join(","));
+    });
+    return "﻿" + lines.join("\n") + "\n";
+  }
+  function exportRotaCsv() {
+    if (!rota.entries.length) return;
+    downloadText("giliran-lmo-" + todayISO() + ".csv", rotaCsv(), "text/csv");
+    rota.exportedAt = Date.now();
+    saveRota();
+    renderRota();
+    announce(T("rExported", rota.entries.length));
+  }
+
+  /* ---------- Banner ---------- */
+  function renderLmoBanner() {
+    var b = $("lmoBanner");
+    if (!b || !rota) return;
+    var due = lmoDue();
+    b.hidden = !due.length;
+    if (!due.length) return;
+    var parts = due.slice(0, 3).map(function (d) {
+      return personName(d.e) + " (" + d.chs.map(function (x) { return chName(x.ch, true); }).join(", ") + ")";
+    }).join(", ");
+    $("lmoText").textContent = T("lmoBanner", parts + (due.length > 3 ? " " + T("lmoMore", due.length - 3) : ""));
+  }
+
+  /* ---------- Rota dialog ---------- */
+  var rotaShowPast = false, rotaLastFocus = null, rotaOpen = { settings: null, members: false };
+  function afterRotaChange(msg) { renderRota(); renderLmoBanner(); if (msg) announce(msg); }
+
+  // Button for one due notice. Tapping records the time; the button stays, so it can be sent again.
+  function channelButton(e, c, ch, name) {
+    function sent(ev) {
+      var el = ev.currentTarget;
+      e.sent[ch] = Date.now();
+      saveRota();
+      setTimeout(function () {
+        el.classList.add("is-sent");
+        var span = el.querySelector("span");
+        if (span && span.textContent.charAt(0) !== "✓") span.textContent = "✓ " + span.textContent;
+        renderLmoBanner();
+        announce(T("rSentMark", chName(ch), name));
+      }, 0);
+    }
+    var el, what = T("rTitle");
+    if (ch === "wa") el = c && c.phone ? waLink(c.phone, lmoWaMsg(e, c), T("chWa"), T("waAria", name, what), sent) : contactFieldButton(c, name, "phone");
+    else if (ch === "email") {
+      var m = lmoMail(e, c);
+      el = c && c.email ? mailLink(c.email, m.subject, m.body, T("chEmail"), T("mailAria", name, what), sent) : contactFieldButton(c, name, "email");
+    } else {
+      var aria = T("addToCal", T("lmoCalText", name));
+      el = h("a", { class: "cal-link", target: "_blank", rel: "noopener", href: lmoCalUrl(e, c), "aria-label": aria, title: aria,
+        html: ICONS.cal + "<span>Google Calendar</span>", onclick: sent });
+    }
+    el.setAttribute("data-k", "due-" + ch + "-" + e.id);
+    return el;
+  }
+  // In place of a channel button when that detail is missing: opens the contact on top of this dialog
+  function contactFieldButton(c, name, field) {
+    if (!c) return contactFixButton(null, name);
+    var label = T(field === "phone" ? "addPhone" : "addEmail");
+    return h("button", { class: "cal-link add-contact", type: "button", "aria-label": label + ": " + name,
+      html: ICONS.user + "<span>" + escapeHtml(label) + "</span>", onclick: function () { openContacts({ id: c.id, focus: field }); } });
+  }
+  function dueRow(d) {
+    var e = d.e, name = personName(e), late = d.chs.some(function (x) { return x.late; });
+    return h("li", { class: "m-row" + (late ? " is-late" : "") }, [
+      h("div", { class: "m-main" }, [
+        h("p", { class: "m-task", text: name }),
+        h("p", { class: "m-sub" }, [
+          late ? h("span", { class: "badge badge-overdue", text: T("rLate") }) : null,
+          document.createTextNode((late ? " " : "") + lmoRange(e) + " · " + d.chs.map(function (x) { return chName(x.ch); }).join(", "))
+        ])
+      ]),
+      h("div", { class: "send-btns" }, d.chs.map(function (x) { return channelButton(e, d.c, x.ch, name); }))
+    ]);
+  }
+  function rotaField(label, control) { return h("label", { class: "r-field" }, [h("span", { text: label }), control]); }
+
+  function rotaSettings(members) {
+    var has = rota.entries.length > 0;
+    if (rotaOpen.settings === null) rotaOpen.settings = !has;   // open when there is no rota yet; then stays as the SU left it
+    var det = h("details", { class: "r-box", open: rotaOpen.settings });
+    det.addEventListener("toggle", function () { rotaOpen.settings = det.open; });
+    det.appendChild(h("summary", { "data-k": "settings", text: T("rSettings") }));
+    if (!members.length) det.appendChild(h("div", { class: "r-warn" }, [
+      h("p", { text: T("rNoMembers") }),
+      h("button", { type: "button", class: "ghost-btn", "data-k": "contacts", text: T("rOpenContacts"), onclick: function () { openContacts(); } })
+    ]));
+
+    var modes = h("fieldset", { class: "r-field r-mode" }, [h("legend", { text: T("rMode") })].concat(["week", "day"].map(function (m) {
+      var r = h("input", { type: "radio", name: "rotaMode", value: m, checked: rota.mode === m, "data-k": "mode-" + m });
+      r.addEventListener("change", function () { rota.mode = m; saveRota(); });
+      return h("label", { class: "r-radio" }, [r, h("span", { text: T(m === "week" ? "rWeek" : "rDay") })]);
+    })));
+    var order = h("select", { "data-k": "order" }, [
+      h("option", { value: "prog", text: T("rOrderProg"), selected: rota.order === "prog" }),
+      h("option", { value: "az", text: T("rOrderAz"), selected: rota.order === "az" })
+    ]);
+    order.addEventListener("change", function () { rota.order = order.value === "az" ? "az" : "prog"; saveRota(); });
+    var startIn = h("input", { type: "date", value: rota.start || defaultStart(), "data-k": "start" });
+    startIn.addEventListener("change", function () { if (ISO_DATE.test(startIn.value)) { rota.start = startIn.value; saveRota(); } });
+    function timeInput(key) {
+      var t = h("input", { type: "time", value: rota[key], "data-k": key });
+      t.addEventListener("change", function () {
+        if (TIME_RE.test(t.value)) { rota[key] = t.value; saveRota(true); } else t.value = rota[key];
+      });
+      return t;
+    }
+    det.appendChild(h("div", { class: "r-grid" }, [modes, rotaField(T("rOrder"), order), rotaField(T("rStart"), startIn),
+      rotaField(T("rTimeFrom"), timeInput("timeFrom")), rotaField(T("rTimeTo"), timeInput("timeTo"))]));
+
+    // Members, grouped by programme (no programme first)
+    function countText() { return T("rMembers", contacts.filter(function (c) { return c.rota; }).length, contacts.length); }
+    var mdet = h("details", { class: "r-members", open: rotaOpen.members });
+    mdet.addEventListener("toggle", function () { rotaOpen.members = mdet.open; });
+    var msum = h("summary", { "data-k": "members", text: countText() });
+    mdet.appendChild(msum);
+    mdet.appendChild(h("p", { class: "c-note", text: T("rMembersHint") }));
+    var groups = [], byProg = Object.create(null);
+    contacts.forEach(function (c) {
+      var k = c.prog || "";
+      if (!byProg[k]) { byProg[k] = { prog: k, list: [] }; groups.push(byProg[k]); }
+      byProg[k].list.push(c);
+    });
+    groups.sort(function (a, b) { return !a.prog !== !b.prog ? (a.prog ? 1 : -1) : a.prog < b.prog ? -1 : a.prog > b.prog ? 1 : 0; });
+    groups.forEach(function (g) {
+      mdet.appendChild(h("fieldset", { class: "r-group" }, [
+        h("legend", { text: g.prog || T("rNoProg") }),
+        h("div", { class: "r-checks" }, g.list.map(function (c) {
+          var cb = h("input", { type: "checkbox", checked: c.rota, "data-k": "m-" + c.id });
+          cb.addEventListener("change", function () { c.rota = cb.checked; saveContacts(); msum.textContent = countText(); });
+          return h("label", { class: "r-check" }, [cb, h("span", null, [document.createTextNode(c.name), c.role ? h("small", { text: " · " + c.role }) : null])]);
+        }))
+      ]));
+    });
+    if (contacts.length) det.appendChild(mdet);
+
+    var gas = h("input", { type: "checkbox", checked: rota.gas, "data-k": "gas" });
+    gas.addEventListener("change", function () { rota.gas = gas.checked; saveRota(); afterRotaChange(); });
+    det.appendChild(h("label", { class: "send-check r-gas" }, [gas, h("span", { text: T("rGas") })]));
+
+    det.appendChild(h("div", { class: "r-actions" }, [
+      h("button", { type: "button", class: "primary-btn", "data-k": "gen", text: T(has ? "rRegen" : "rGenerate"), onclick: function () {
+        var start = ISO_DATE.test(startIn.value) ? startIn.value : rota.start || defaultStart();
+        if (!rotaMembers().length) { showToast(T("rNoMembers"), false); return; }
+        if (rota.entries.length && !window.confirm(T("rRegenConfirm", longDate(start)))) return;
+        rota.start = start;
+        var n = generateRota(start);
+        afterRotaChange(T("rGenerated", n));
+        showToast(T("rGenerated", n), false);
+      } }),
+      has ? h("button", { type: "button", class: "ghost-btn", "data-k": "ext", text: T("rExtend"), onclick: function () {
+        if (!rotaMembers().length) { showToast(T("rNoMembers"), false); return; }
+        var n = extendRota();
+        afterRotaChange(T("rExtended", n));
+        showToast(T("rExtended", n), false);
+      } }) : null
+    ]));
+    return det;
+  }
+
+  function entryRow(e, today, members) {
+    var isPast = e.end < today, isNow = e.start <= today && today <= e.end && !e.off;
+    var c = entryContact(e), range = lmoRange(e), who = personName(e);
+    var sel = h("select", { class: "r-person", "data-k": "p-" + e.id, "aria-label": T("rPerson", range), disabled: isPast || e.off });
+    if (e.off) sel.appendChild(h("option", { value: "", text: T("pHoliday"), selected: true }));
+    else {
+      if (!c) sel.appendChild(h("option", { value: "", text: e.name || T("rNoPerson"), selected: true }));
+      (c && members.indexOf(c) < 0 ? [c].concat(members) : members).forEach(function (m) {
+        sel.appendChild(h("option", { value: m.id, text: m.name, selected: m === c }));
+      });
+    }
+    sel.addEventListener("change", function () {
+      var res = sel.value ? swapTurn(e, sel.value) : null;
+      if (!res) { renderRota(); return; }
+      if (res.told.length) showToast(T("rTellOld", res.told.join(", ")), false);
+      afterRotaChange(T(res.swapped ? "rSwapped" : "rReplaced"));
+    });
+    var chips = CHS.map(function (ch) {
+      var at = e.sent[ch], label = chName(ch) + (at ? " " + dm(at) : "");
+      return h("button", { type: "button", class: "r-chip", "aria-pressed": at ? "true" : "false", "data-k": ch + "-" + e.id,
+        "aria-label": T("rChipAria", label, who || range), disabled: e.off && !at, text: (at ? "✓ " : "") + label,
+        onclick: function () {
+          e.sent[ch] = at ? 0 : Date.now();
+          saveRota();
+          afterRotaChange(T(at ? "rUnmark" : "rSentMark", chName(ch), who));
+        } });
+    });
+    var off = h("input", { type: "checkbox", checked: e.off, disabled: isPast, "data-k": "off-" + e.id, "aria-describedby": "rw-" + e.id });
+    off.addEventListener("change", function () {
+      var told = setOff(e, off.checked);
+      if (told.length) showToast(T("rTellOld", told.join(", ")), false);
+      afterRotaChange(T(off.checked ? "rOffOn" : "rOffOff"));
+    });
+    return h("li", { class: "r-row" + (isNow ? " is-now" : "") + (e.off ? " is-off" : "") + (isPast ? " is-past" : "") }, [
+      h("div", { class: "r-when" }, [
+        h("p", { class: "r-range", id: "rw-" + e.id, text: range }),
+        isNow ? h("span", { class: "badge badge-schedule", text: T(e.start === e.end ? "rToday" : "rThisWeek") }) : null
+      ]),
+      sel,
+      h("div", { class: "r-chips" }, chips),
+      h("label", { class: "r-off" }, [off, h("span", { text: T("rOff") })])
+    ]);
+  }
+
+  function renderRota() {
+    var root = $("rotaBody"), today = todayISO();
+    var a = document.activeElement, keepK = a && root.contains(a) ? a.getAttribute("data-k") : null;
+    root.textContent = "";
+    var cur = currentEntry(today), nxt = cur ? null : nextEntry(today);
+    $("rotaNow").textContent = cur ? T("rNow", personName(cur)) : nxt ? T("rNext", personName(nxt), lmoRange(nxt)) : T("rNoneYet");
+    var members = rotaMembers(), has = rota.entries.length > 0;
+
+    // 1. Notices due now
+    root.appendChild(h("h3", { class: "ins-h", text: T("rDue") }));
+    if (rota.gas) root.appendChild(h("p", { class: "c-note", text: T("rGasOn") }));
+    var due = lmoDue(today);
+    if (!due.length) root.appendChild(h("p", { class: "m-clear", text: T("rNothingDue") }));
+    else root.appendChild(h("ul", { class: "m-list" }, due.map(function (d) { return dueRow(d); })));
+
+    // 2. Settings
+    root.appendChild(rotaSettings(members));
+
+    // 3. Print and export
+    root.appendChild(h("h3", { class: "ins-h", text: T("rTools") }));
+    if (rota.gas && has && rota.changedAt > rota.exportedAt) root.appendChild(h("p", { class: "r-warn", text: T("rReexport") }));
+    root.appendChild(h("div", { class: "r-actions r-tools" }, [
+      h("button", { type: "button", class: "ghost-btn", "data-k": "csv", text: T("rExportCsv"), disabled: !has, onclick: exportRotaCsv }),
+      h("button", { type: "button", class: "ghost-btn", "data-k": "print", text: T("rPrintRoster"), disabled: !has, onclick: function () { printRota("roster"); } }),
+      h("button", { type: "button", class: "ghost-btn", "data-k": "check", text: T("rPrintCheck"), disabled: !has, onclick: function () { printRota("check"); } }),
+      h("a", { class: "ghost-btn", href: GUIDE_URL, target: "_blank", rel: "noopener", "data-k": "guide", text: T("rGuide") })
+    ]));
+
+    // 4. Turns: upcoming first; past ones on request
+    if (has) {
+      root.appendChild(h("h3", { class: "ins-h", text: T("rList") }));
+      var past = rota.entries.filter(function (e) { return e.end < today; });
+      var up = rota.entries.filter(function (e) { return e.end >= today; });
+      if (past.length) root.appendChild(h("button", { type: "button", class: "link-btn r-past", "data-k": "past", "aria-expanded": String(rotaShowPast),
+        text: rotaShowPast ? T("rHidePast") : T("rShowPast", past.length), onclick: function () { rotaShowPast = !rotaShowPast; renderRota(); } }));
+      root.appendChild(h("ol", { class: "r-list" }, (rotaShowPast ? past.concat(up) : up).map(function (e) { return entryRow(e, today, members); })));
+    }
+
+    if (keepK) {
+      var el = root.querySelector('[data-k="' + cssEscape(keepK) + '"]');
+      (el && !el.disabled && el.offsetParent !== null ? el : $("rotaClose")).focus();
+    }
+  }
+  function refreshRota(prev) {
+    var k = prev && prev.getAttribute ? prev.getAttribute("data-k") : null;
+    renderRota();
+    var el = k ? $("rotaBody").querySelector('[data-k="' + cssEscape(k) + '"]') : null;
+    (el && el.offsetParent !== null ? el : $("rotaClose")).focus();
+  }
+  function openRota(focusDue) {
+    var a = document.activeElement;
+    rotaLastFocus = menu.contains(a) ? menuBtn : a;
+    closeMenu();
+    rotaOpen.settings = null;
+    renderRota();
+    var dlg = $("rotaDlg");
+    if (!dlg.open) { if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", ""); }
+    var first = focusDue ? $("rotaBody").querySelector(".m-list a, .m-list button") : null;
+    if (first) first.focus();
+  }
+  function closeRota() {
+    var dlg = $("rotaDlg");
+    if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
+  }
+  $("rotaBtn").addEventListener("click", function () { openRota(false); });
+  $("lmoOpen").addEventListener("click", function () { openRota(true); });
+  $("rotaClose").addEventListener("click", closeRota);
+  $("rotaDlg").addEventListener("close", function () {
+    render();
+    var f = rotaLastFocus;
+    if (f && f.focus && f.isConnected && f.offsetParent !== null) f.focus(); else menuBtn.focus();
+  });
+  $("rotaDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeRota(); });
+
+  /* ---------- Print: roster and daily checklist (MQS audit evidence) ---------- */
+  function printRota(kind) {
+    var today = todayISO(), area = $("printArea");
+    var list = rota.entries.filter(function (e) { return rotaShowPast || e.end >= today; });
+    if (!list.length) { showToast(T("rNothingToPrint"), false); return; }
+    area.textContent = "";
+    function table(cols, rows, cls) {
+      return h("table", { class: "p-table " + cls }, [
+        h("thead", null, [h("tr", null, cols.map(function (x) { return h("th", { scope: "col", text: x }); }))]),
+        h("tbody", null, rows.map(function (r) { return h("tr", { class: r.cls }, r.cells.map(function (x) { return h("td", { text: x }); })); }))
+      ]);
+    }
+    var roster = kind === "roster";
+    area.appendChild(h("h1", { class: "p-title", text: roster ? T(rota.mode === "day" ? "pRosterTitleDay" : "pRosterTitle") : T("pCheckTitle") }));
+    area.appendChild(h("p", { class: "p-sub", text: T("pDept") }));
+    var days = [], d = nextWorkday(today);
+    while (days.length < 20) { days.push(d); d = nextWorkday(addDays(d, 1)); }   // checklist: 4 weeks of working days
+    area.appendChild(h("p", { class: "p-meta", text: (roster ? "" : lmoRange({ start: days[0], end: days[19] }) + " · ") +
+      T("pDutyTime", rota.timeFrom, rota.timeTo) + " · " + T("pMqs") }));
+    if (roster) {
+      area.appendChild(table([T("pBil"), T("pWeek"), T("pName"), T("pRole"), T("pSign"), T("pNote")], list.map(function (e, i) {
+        var c = e.off ? null : entryContact(e);
+        return e.off ? { cls: "p-off", cells: [String(i + 1), lmoRange(e), T("pHoliday"), "", "", ""] }
+          : { cells: [String(i + 1), lmoRange(e), personName(e), c ? [c.role, c.prog].filter(Boolean).join(" / ") : "", "", ""] };
+      }), "p-roster"));
+    } else {
+      var rows = days.map(function (day) {
+        var e = entryOn(day);
+        return { cls: e && e.off ? "p-off" : null, cells: [shortDate(day, { weekday: "short", day: "numeric", month: "short" }),
+          e ? (e.off ? T("pHoliday") : personName(e)) : "", "☐", "☐", "☐", "☐", "", ""] };
+      });
+      area.appendChild(table([T("pDate"), T("pOfficer"), T("pLights"), T("pAc"), T("pSwitch"), T("pDoor"), T("pTimeOut"), T("pSign")], rows, "p-check"));
+      area.appendChild(h("p", { class: "p-checked", text: T("pCheckedBy") }));
+    }
+    area.appendChild(h("p", { class: "p-foot", text: T("pPrinted", longDate(today)) }));
+    document.body.classList.add("print-rota");
+    var cleaned = false;
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      window.removeEventListener("afterprint", cleanup);
+      document.body.classList.remove("print-rota");
+      area.textContent = "";
+    }
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+  }
+
+  /* ================================================================
      Theme and language
      ================================================================ */
   function applyTheme(theme) {
@@ -1799,6 +2616,8 @@
     if ($("contactsDlg").open) renderContacts();
     if ($("sendDlg").open) renderSendAll();
     if ($("monitorDlg").open) renderMonitor();
+    if ($("rotaDlg").open) renderRota();
+    renderRoleOptions();
   }
   document.querySelectorAll(".lang [data-lang]").forEach(function (b) {
     b.addEventListener("click", function () {
@@ -1808,6 +2627,13 @@
     });
   });
 
+  // Role suggestions in the contact form follow the language
+  function renderRoleOptions() {
+    var dl = $("roleList");
+    if (!dl) return;
+    dl.textContent = "";
+    T("cRoles").forEach(function (r) { dl.appendChild(h("option", { value: r })); });
+  }
   function renderToday() {
     $("today").textContent = new Date().toLocaleDateString(T("locale"), { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   }
@@ -1824,10 +2650,12 @@
   });
 
   window.addEventListener("storage", function (e) {
-    if (e.key !== KEY && e.key !== ARCHIVE_KEY) return;
+    if (e.key !== KEY && e.key !== ARCHIVE_KEY && e.key !== ROTA_KEY && e.key !== CONTACTS_KEY) return;
     if (document.activeElement && document.activeElement.classList.contains("task-edit")) return;
     loadAll();
+    renderContactOptions();
     render();
+    if ($("rotaDlg").open) renderRota();
   });
 
   var lastDay = todayISO();
@@ -1838,6 +2666,7 @@
     renderToday();
     var n = promoteDue();
     commit();
+    if ($("rotaDlg").open) renderRota();
     if (n) showToast(T("promoted", n), false);
   }, 60000);
 

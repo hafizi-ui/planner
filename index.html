@@ -35,6 +35,7 @@
         <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
         <div>
           <p class="brand-name">JPPP Smart Planner</p>
+          <p class="brand-sub" data-i18n="brandSub">Department Secretary · KPTM Kuantan</p>
           <p class="today" id="today"></p>
         </div>
       </div>
@@ -52,6 +53,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
           </button>
           <div class="menu" id="menu" hidden>
+            <button type="button" id="rotaBtn" data-i18n="rota">Last Man Out rota</button>
             <button type="button" id="contactsBtn" data-i18n="contacts">Team contacts</button>
             <button type="button" id="exportBtn" data-i18n="export">Export backup</button>
             <button type="button" id="importBtn" data-i18n="import">Import backup</button>
@@ -74,8 +76,8 @@
 
     <main id="main">
       <section class="hero">
-        <h1 data-i18n="h1">What deserves your time today?</h1>
-        <p class="lede" data-i18n="lede">Write a task and answer two quick questions. The planner puts it in the right box and shows you where your week really went.</p>
+        <h1 data-i18n="h1">What needs handling today?</h1>
+        <p class="lede" data-i18n="lede">Sort department work by priority, delegate meeting actions to each PIC and send Last Man Out reminders on time.</p>
 
         <form class="composer" id="composer" autocomplete="off" novalidate>
           <div class="composer-main">
@@ -113,6 +115,11 @@
       <div class="banner banner-warn" id="remindBanner" hidden>
         <span id="remindText"></span>
         <button type="button" class="link-btn" id="remindOpen" data-i18n="sendReminders">Send reminders</button>
+      </div>
+
+      <div class="banner banner-warn" id="lmoBanner" hidden>
+        <span id="lmoText"></span>
+        <button type="button" class="link-btn" id="lmoOpen" data-i18n="lmoSend">Send</button>
       </div>
 
       <div class="banner" id="reviewBanner" hidden>
@@ -168,6 +175,8 @@
       <label><span data-i18n="cName">Name</span><input name="name" type="text" maxlength="60" required></label>
       <label><span data-i18n="cPhone">WhatsApp no.</span><input name="phone" type="tel" inputmode="tel" maxlength="20" placeholder="012-345 6789"></label>
       <label><span data-i18n="cEmail">Email</span><input name="email" type="email" maxlength="120" placeholder="nama@kptm.edu.my"></label>
+      <label><span data-i18n="cRole">Role</span><input name="role" type="text" maxlength="40" list="roleList" autocomplete="off"></label>
+      <label><span data-i18n="cProg">Programme</span><input name="prog" type="text" maxlength="20" autocomplete="off" data-i18n-placeholder="cProgPh"></label>
       <div class="c-form-actions">
         <button class="primary-btn" type="submit" id="contactSave" data-i18n="cSave">Save</button>
         <button class="link-btn" type="button" id="contactCancel" data-i18n="cCancel" hidden>Cancel</button>
@@ -209,7 +218,18 @@
     </div>
     <div id="monitorBody"></div>
   </dialog>
+  <dialog class="sheet sheet-wide" id="rotaDlg" aria-labelledby="rotaTitle">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow" id="rotaNow"></p>
+        <h2 id="rotaTitle" data-i18n="rTitle">Last Man Out rota</h2>
+      </div>
+      <button type="button" class="icon-btn" id="rotaClose" data-i18n-aria="close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="rotaBody"></div>
+  </dialog>
   <datalist id="contactList"></datalist>
+  <datalist id="roleList"></datalist>
 
   <p class="sr-only" id="announcer" aria-live="polite"></p>
 
@@ -217,6 +237,9 @@
     <span id="toastText"></span>
     <button type="button" id="toastUndo" data-i18n="undo">Undo</button>
   </div>
+
+  <!-- Filled only while printing the Last Man Out roster or checklist -->
+  <div id="printArea"></div>
 
   <script src="app.js"></script>
   <script>if("serviceWorker" in navigator&&location.protocol!=="file:"){addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
