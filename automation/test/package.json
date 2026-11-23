@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Lets `node --test automation/test` run the Apps Script tests (Node 22 treats a folder argument as a module).",
+  "main": "lastmanout.test.js"
+}

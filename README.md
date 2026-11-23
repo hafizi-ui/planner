@@ -50,7 +50,7 @@ A "Notified" label shows which PICs have been told.
 
 **Send to each PIC** (button at the bottom of the Delegate box) groups every open task by person and builds **one message per PIC**, numbered and sorted by due date, with an optional heading such as *"Mesyuarat Jabatan Bil. 3/2026"*. Tick *"Only tasks not yet notified"* to send just the new items after a follow-up meeting.
 
-**Team contacts** (⋯ menu) stores each member's name, WhatsApp number and email, so you never retype them. Add them one by one or import a CSV from Excel / Google Sheets (columns: name, WhatsApp no., email). Numbers like `012-345 6789` are converted to WhatsApp format automatically. Contacts stay on your device only and are never part of the public website.
+**Team contacts** (⋯ menu) stores each member's name, WhatsApp number and email, so you never retype them. Add them one by one or import a CSV from Excel / Google Sheets (columns: name, WhatsApp no., email; optionally role, programme and Last Man Out rota, see below). Numbers like `012-345 6789` are converted to WhatsApp format automatically. Contacts stay on your device only and are never part of the public website.
 
 ## Task pack: Last Man Out (MQS)
 
@@ -66,6 +66,60 @@ Add it from the ⋯ menu (**Tambah pakej: Last Man Out (MQS)**) or open https://
 | **Delete** | Relying on one person to close the office every day |
 
 Scheduled dates are set from the day you add the pack (tomorrow, in 2 days, in a week), so the tasks move to Do on their own when the day arrives. Edit any date to match your audit timeline.
+
+## Giliran Last Man Out (rota) & reminders
+
+The task pack above helps you set the duty up. **Giliran Last Man Out** (first item in the ⋯ menu) then runs it week after week: it builds the rota, reminds each officer on time, and prints the MQS evidence.
+
+**1. Import the department's members once.** In **Team contacts**, import a CSV with these columns (BM header; the English header `Name,WhatsApp no.,Email,Role,Programme,LMO rota` also works):
+
+```
+Nama,No. WhatsApp,Emel,Jawatan,Program,Giliran LMO
+```
+
+- **Jawatan** (role): `Ketua Jabatan`, `Setiausaha`, `Ketua Program` or `Pensyarah`
+- **Program**: e.g. `AA101`, `AB101`, `AB107`, or blank
+- **Giliran LMO** (in the rota?): `Ya` or `Tidak`. If blank, everyone with a role is in the rota except the Ketua Jabatan.
+- WhatsApp number and email may be left blank at first. The planner shows **Lengkapkan kenalan** (complete contact) wherever one is missing.
+
+Keep this file on your own computer. It must never be uploaded to this repository (see [Privacy note for staff data](#privacy-note-for-staff-data)).
+
+**2. Build the rota.** Choose weekly (Monday to Friday, the default) or daily turns, the order (by programme, or A to Z), the start date and the duty time (default 4:45 to 5:15 pm), tick who is in the rota, and press **Jana jadual**. **Sambung satu pusingan** adds one more full cycle.
+
+**3. Change it without anyone losing a turn.**
+
+- **Swap:** pick another person for a turn; they swap with that person's next turn.
+- **Cuti umum / tiada tugas** (public holiday, no duty): everyone after that week moves one slot later, and one turn is added at the end.
+- Turns that have already been notified, or start within 2 days, are never changed by regenerating.
+
+**4. Reminders, on time.**
+
+| When | What | To whom |
+|---|---|---|
+| 2 days before the turn (a Monday turn is notified on Saturday) | Email + Google Calendar invitation (duty time every working day of the turn) | Duty officer |
+| First day of the turn | WhatsApp reminder with the checklist | Duty officer |
+
+The planner has no server, so a banner (*"Last Man Out: notis untuk ... perlu dihantar"*) tells you when a notice is due, with one-tap Email / Calendar / WhatsApp buttons. It remembers what was sent and flags late notices. To send the email and calendar invitation fully automatically, use the Google Apps Script below.
+
+**5. Print the MQS evidence.** **Cetak jadual** prints the duty roster (week/date, officer, role/programme, signature, remarks). **Cetak senarai semak** prints a 4-week daily checklist (lights, air-conditioning, main switch/plugs, doors and windows locked, time out, signature) with a "checked by" line for the MQS committee.
+
+## Automation with Google Apps Script
+
+An optional script in [`automation/`](automation/) runs every morning (about 7 am Malaysia time, weekends included) inside the secretary's own KPTM Google account:
+
+- **2 days before each turn**, it emails the duty officer and sends a Google Calendar invitation (a daily series for a weekly turn, at the duty time, with a 30-minute pop-up reminder on the secretary's copy).
+- **On the first day of the turn**, it emails the secretary a one-tap `wa.me` link with the WhatsApp reminder already written. WhatsApp cannot be sent automatically without the paid WhatsApp Business Platform, so she only taps **Send**.
+- It never sends the same notice twice, catches up after a missed morning (until the turn starts), skips holiday weeks, cancels the old invitation when a turn is swapped, and stops before the daily email quota runs out. Anything that needs her attention (missing email, errors) is listed in her daily summary email.
+
+Setup: export **Eksport CSV untuk Google Sheet** from the planner, import it into a private Google Sheet tab named `Giliran`, paste [`LastManOut.gs`](automation/LastManOut.gs) into **Extensions › Apps Script**, then choose **Last Man Out › Pasang (sekali sahaja)**. Step-by-step guide in Bahasa Melayu: **[automation/PANDUAN.md](automation/PANDUAN.md)**. Afterwards, tick **Emel & kalendar dihantar automatik oleh Google Apps Script** in the planner so the banner only asks for WhatsApp.
+
+Rota CSV columns (planner export → Sheet):
+
+```
+ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar
+```
+
+The script finds columns by name (any order) and may add `ID acara` and `Catatan skrip` on the right. Tests (Node 18+, no install): `node --test automation/test`.
 
 ## Project monitor (Pantauan projek)
 
@@ -87,6 +141,8 @@ Google Calendar answers *when* you are busy. This planner answers *whether that 
 
 Diploma and degree students juggling coursework, co-curricular work and part-time jobs, and lecturers balancing teaching, research and administration, starting at KPTM.
 
+It is also set up for the **department secretary (Setiausaha Jabatan, SU) of JPPP** (Jabatan Pengurusan Perniagaan & Perakaunan), KPTM Kuantan: sorting department work, delegating meeting actions to PICs and following them up, and running the weekly Last Man Out (MQS) rota with its reminders.
+
 ## Features
 
 - Add a task and answer two quick questions; the "Goes to" preview shows the box before you add it
@@ -99,6 +155,7 @@ Diploma and degree students juggling coursework, co-curricular work and part-tim
 - Light and dark theme, BM/EN switch
 - Export and import backups (JSON)
 - Load a sample week from the ⋯ menu, or open the app with `?demo=1`
+- Last Man Out duty rota with timed reminders and a printable roster and checklist (see above)
 - Press `/` to jump to the task box
 
 ## Accessibility
@@ -110,7 +167,15 @@ Diploma and degree students juggling coursework, co-curricular work and part-tim
 
 ## Privacy
 
-Everything, including team contacts, is stored in the browser's `localStorage` on your own device. Nothing is sent to any server and there is no tracking. Use **Export backup** to move tasks to another device.
+Everything, including team contacts and the rota, is stored in the browser's `localStorage` on your own device. The planner sends nothing to any server and there is no tracking. Use **Export backup** to move tasks to another device. The optional Apps Script runs in your own Google account, not on this website.
+
+## Privacy note for staff data
+
+This repository and website are **public**. Staff names, phone numbers and emails must never be committed here.
+
+- The members CSV and the rota CSV are kept only on the secretary's device and in her own private Google Sheet. `.gitignore` blocks the usual file names (`*ahli*.csv`, `giliran-lmo-*.csv`, `contacts-*.csv`), but always check before uploading files to GitHub.
+- Examples and tests in this repository use made-up names (`Pensyarah Ujian 1`), `example.com` emails and `6012000000x` numbers only.
+- Under the PDPA, it is good practice to tell staff that their work email and WhatsApp number are used for duty reminders, and to share the Sheet with no one who does not need it.
 
 ## Tech
 
@@ -119,13 +184,19 @@ Plain HTML, CSS and JavaScript. No frameworks, no build step, no external reques
 ```
 index.html             page structure
 style.css              design and layout
-app.js                 all app logic (about 1,100 lines)
+app.js                 all app logic
 sw.js                  offline support
 manifest.json          install as an app
 icon*.svg, icon*.png   app icons
 fonts/                 self-hosted fonts (SIL Open Font License)
 docs/                  screenshots
 og.png                 preview image for social media links
+automation/            optional Google Apps Script for Last Man Out reminders
+  LastManOut.gs        the script (paste into Extensions › Apps Script)
+  appsscript.json      script settings (time zone Asia/Kuala_Lumpur, V8)
+  PANDUAN.md           setup guide in Bahasa Melayu
+  test/                Node tests with Apps Script mocks
+.gitignore             keeps staff CSV files out of the repository
 ```
 
 ## Publish on GitHub Pages
@@ -138,6 +209,8 @@ og.png                 preview image for social media links
 ## Run locally
 
 Open `index.html` in a browser. Offline/install features need a web server, for example `python -m http.server`, then open `http://localhost:8000`.
+
+Test the Apps Script without a Google account: `node --test automation/test`.
 
 ## Roadmap
 

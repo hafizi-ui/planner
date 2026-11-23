@@ -1,0 +1,12 @@
+# Staff data must never be committed: this repository is PUBLIC.
+# Members list (Nama, No. WhatsApp, Emel, ...) and anything exported from the planner.
+*ahli*.csv
+*Ahli*.csv
+*AHLI*.csv
+giliran-lmo-*.csv
+contacts-*.csv
+kenalan-*.csv
+
+# Local tooling
+node_modules/
+.DS_Store
