@@ -1,6 +1,6 @@
 {
   "name": "JPPP Smart Planner",
-  "short_name": "JPPP Planner",
+  "short_name": "JPPP Smart Planner",
   "description": "A bilingual decision coach for the JPPP department secretary: sort tasks into Do, Schedule, Delegate and Delete, delegate meeting actions and run the Last Man Out (MQS) rota.",
   "id": "./",
   "start_url": "./",
