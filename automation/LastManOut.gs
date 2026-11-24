@@ -3,7 +3,10 @@
 /*
  * Last Man Out (MQS): peringatan automatik untuk Setiausaha Jabatan JPPP, KPTM Kuantan.
  *
- * Kod ini ditampal ke dalam Google Sheet SU (Sambungan > Apps Script).
+ * Kod ini ditampal ke dalam Google Sheet oleh staf yang memasangnya ("pentadbir"), dalam akaun
+ * Google pentadbir itu (Sambungan > Apps Script). Emel dan jemputan dihantar daripada akaun itu
+ * atas nama "JPPP Smart Planner". Setiausaha Jabatan (SU) menerima emel WhatsApp hari bertugas;
+ * pentadbir menerima laporan masalah.
  * Panduan langkah demi langkah: automation/PANDUAN.md
  *
  * Tab "Giliran" = CSV giliran yang dieksport dari planner ("Eksport CSV untuk Google Sheet").
@@ -11,11 +14,11 @@
  *   - 2 hari sebelum giliran (termasuk Sabtu/Ahad): menghantar emel dan jemputan
  *     Google Calendar kepada pegawai bertugas;
  *   - pada hari pertama giliran: menghantar emel kepada SU dengan pautan WhatsApp
- *     satu-sentuh (mesej siap ditulis; SU tekan Hantar sahaja).
+ *     satu-sentuh (mesej siap ditulis; SU tekan Hantar sahaja dari telefonnya).
  * Butang Selesai (pilihan, apabila web app dipasang): pegawai menekan pautan peribadi dan
  * menanda Selesai selepas tugas. Jika tiada pengesahan sebelum had (18:30), Ketua Jabatan
- * dimaklumkan melalui emel (salinan kepada SU). Rekod dalam tab "Pengesahan".
- * Data staf kekal dalam akaun Google SU sahaja.
+ * dimaklumkan melalui emel (salinan kepada SU dan pentadbir). Rekod dalam tab "Pengesahan".
+ * Data staf kekal dalam Google Sheet pentadbir sahaja.
  *
  * Code notes (English): plain V8 Apps Script, no libraries. planActions_(), planConfirm_() and
  * confirmState_() are pure (no Apps Script services) so they can be unit-tested in Node; see
@@ -31,7 +34,7 @@ var CFG = {
   CAL_ID: "primary",             // "primary" = kalendar utama akaun ini
   DRY_RUN: false,                // true = uji sahaja, tiada apa-apa dihantar
   RUN_HOUR: 7,                   // skrip berjalan setiap hari antara 7 dan 8 pagi
-  SENDER_NAME: "Setiausaha Jabatan JPPP",
+  SENDER_NAME: "JPPP Smart Planner",  // nama pengirim emel (emel dihantar daripada akaun pentadbir)
   DAYS_BEFORE: 2,                // emel & jemputan kalendar: 2 hari sebelum giliran
   WARN_DAYS: 7,                  // amaran awal kepada SU jika pegawai tiada emel: 7 hari sebelum giliran
   POPUP_MINUTES: 30,             // peringatan pop-up dalam kalendar SU
@@ -49,7 +52,11 @@ var CFG = {
 };
 /* ================================================================== */
 
+// WhatsApp text: sent by the SU from her own phone, so it is signed by her (byte-identical to the planner's lmoWaMsg).
 var LMO_SIGNOFF = "Setiausaha Jabatan JPPP, KPTM Kuantan";
+// Emails and invitations: sent automatically from the installer's (admin's) account.
+var LMO_MAIL_SIGNOFF = "JPPP Smart Planner, Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan";
+var LMO_SU_RE = /setiausaha|secretary/i;
 var LMO_CHECKLIST = [
   "Semua lampu ditutup",
   "Penyaman udara & kipas dimatikan",
@@ -105,6 +112,7 @@ function onOpen() {
     .addSeparator()
     .addItem("Pautan Selesai (web app)", "showWebAppUrl")
     .addItem("Emel Ketua Jabatan", "setKjEmail")
+    .addItem("Emel Setiausaha (WhatsApp)", "setSuEmail")
     .addSeparator()
     .addItem("Henti automatik", "uninstall")
     .addToUi();
@@ -116,18 +124,22 @@ function install() {
   removeTriggers_();
   ScriptApp.newTrigger("dailyRun").timeBased().everyDays(1).atHour(CFG.RUN_HOUR).inTimezone(CFG.TZ).create();
   ScriptApp.newTrigger("deadlineCheck").timeBased().everyMinutes(CFG.CHECK_MINUTES).create();
-  var sheet = findSheet_(), info = "";
+  var sheet = findSheet_(), info = "", items = [];
+  var props = PropertiesService.getScriptProperties().getProperties(), admin = adminEmail_();
   if (!sheet) info = "\n\nAMARAN: tab \"" + CFG.SHEET + "\" belum ada. Import CSV giliran dari planner ke tab itu.";
   else {
     var parsed = parseRows_(sheet.getDataRange().getDisplayValues(), CFG);
+    items = parsed.items;
     info = parsed.ok ? "\n\nTab \"" + sheet.getName() + "\": " + parsed.items.length + " giliran dijumpai."
       : "\n\nAMARAN: " + parsed.error;
   }
-  var url = PropertiesService.getScriptProperties().getProperty("WEBAPP_URL");
+  var su = suContact_(items, props, admin);
+  info += "\n\nEmel WhatsApp hari bertugas kepada: " + (su.email || "-") + " (" + suSourceText_(su) + ").\nLaporan masalah kepada: " + (admin || "-") + " (anda).";
+  var url = props.WEBAPP_URL;
   alert_("Automatik dipasang",
     "Skrip akan berjalan setiap hari antara " + CFG.RUN_HOUR + " dan " + (CFG.RUN_HOUR + 1) + " pagi (waktu Malaysia).\n\n" +
     "2 hari sebelum setiap giliran: emel dan jemputan Google Calendar kepada pegawai.\n" +
-    "Hari pertama giliran: emel kepada anda dengan pautan WhatsApp.\n" +
+    "Hari pertama giliran: emel kepada Setiausaha Jabatan dengan pautan WhatsApp.\n" +
     (CFG.CONFIRM && validWebUrl_(url)
       ? "Butang Selesai: disemak setiap " + CFG.CHECK_MINUTES + " minit mulai " + CFG.CHECK_FROM + " pada hari bekerja."
       : "Butang Selesai: belum aktif. Pilih menu \"Pautan Selesai (web app)\" selepas deploy web app (PANDUAN langkah 11).") + info);
@@ -181,34 +193,38 @@ function testRun() {
 /** Menu: sends the next turn's email, a calendar event and the duty-day email to the SU only. */
 function sendTestToMe() {
   if (!ui_()) return null;
-  var today = todayIso_(now_()), su = suEmail_(), sheet = findSheet_();
+  var today = todayIso_(now_()), admin = adminEmail_(), sheet = findSheet_();
   if (!sheet) { alert_("Emel ujian", "Tab \"" + CFG.SHEET + "\" tidak dijumpai."); return null; }
   var props = PropertiesService.getScriptProperties().getProperties();
   var rows = confirmActive_(props, CFG) ? ensureCodes_(sheet) : sheet.getDataRange().getDisplayValues();
   var parsed = parseRows_(rows, CFG);
   if (!parsed.ok) { alert_("Emel ujian", parsed.error); return null; }
   withLinks_(parsed.items, props, CFG);
+  var su = suContact_(parsed.items, props, admin);
   var r = nextItem_(parsed.items, today);
   if (!r) { alert_("Emel ujian", "Tiada giliran akan datang dalam tab \"" + sheet.getName() + "\"."); return null; }
   if (MailApp.getRemainingDailyQuota() < 2) { alert_("Emel ujian", "Kuota emel harian akaun ini sudah habis. Cuba esok."); return null; }
   var sendDay = addDays_(r.start, -CFG.DAYS_BEFORE);
   var linkNote = r.link ? "\n\nPautan Selesai dalam emel ini ialah pautan sebenar pegawai. Membukanya selamat, tetapi jangan tekan Selesai bagi pihak pegawai." : "";
   MailApp.sendEmail({
-    to: su, name: CFG.SENDER_NAME,
+    to: admin, name: CFG.SENDER_NAME,
     subject: "[UJIAN] " + mailSubject_(r),
     body: "INI EMEL UJIAN. Emel sebenar akan dihantar kepada " + r.name + " (" + (r.addr ? r.email : "tiada emel dalam Sheet") +
       ") pada " + longDate_(sendDay) + "." + linkNote + "\n\n----------\n\n" + mailBody_(r)
   });
   createLmoEvent_(getCalendar_(), r, { title: "[UJIAN] " + calTitle_(r), guest: "" });
   var text = waText_(r);
-  var dg = buildDigest_({ today: r.start, wa: [{ item: r, phone: r.phone, text: text, url: r.phone ? waUrl_(r.phone, text) : "" }] });
-  var intro = "INI EMEL UJIAN: contoh emel yang anda akan terima pada hari bertugas. Jangan tekan Hantar dalam WhatsApp semasa ujian.";
+  var dg = buildDigest_({ today: r.start, wa: [{ item: r, phone: r.phone, text: text, url: r.phone ? waUrl_(r.phone, text) : "" }] },
+    sameEmail_(su.email, admin) ? "all" : "su", { admin: admin });
+  var intro = "INI EMEL UJIAN: contoh emel yang Setiausaha Jabatan (" + (su.email || "tiada emel") + ") akan terima pada hari bertugas. " +
+    "Jangan tekan Hantar dalam WhatsApp semasa ujian.";
   MailApp.sendEmail({
-    to: su, name: CFG.SENDER_NAME, subject: "[UJIAN] " + dg.subject,
+    to: admin, name: CFG.SENDER_NAME, subject: "[UJIAN] " + dg.subject,
     body: intro + "\n\n" + dg.body, htmlBody: "<p><b>" + esc_(intro) + "</b></p>" + dg.html
   });
   alert_("Emel ujian dihantar",
-    "Dua emel ujian dihantar ke " + su + ".\n\nSatu acara \"[UJIAN] " + calTitle_(r) + "\" juga dicipta dalam Google Calendar anda pada " +
+    "Dua emel ujian dihantar ke " + admin + ".\n\nEmel WhatsApp sebenar pada hari bertugas akan dihantar kepada Setiausaha Jabatan: " +
+    (su.email || "-") + " (" + suSourceText_(su) + ").\n\nSatu acara \"[UJIAN] " + calTitle_(r) + "\" juga dicipta dalam Google Calendar anda pada " +
     longDate_(r.days[0]) + ". Tiada jemputan dihantar kepada pegawai. Padam acara [UJIAN] itu selepas menyemak.");
   return { item: r };
 }
@@ -273,7 +289,34 @@ function setKjEmail() {
   }
   if (!validEmail_(txt)) { alert_("Emel Ketua Jabatan", "Emel tidak sah: " + txt); return null; }
   store.setProperty("KJ_EMAIL", txt);
-  alert_("Emel Ketua Jabatan", "Amaran Selesai akan dihantar kepada " + txt + " (salinan kepada anda).");
+  alert_("Emel Ketua Jabatan", "Amaran Selesai akan dihantar kepada " + txt + " (salinan kepada Setiausaha Jabatan dan anda).");
+  return txt;
+}
+
+/** Menu: the Setiausaha Jabatan's email (duty-day WhatsApp email, cc on KJ alerts), or back to the Sheet / admin. */
+function setSuEmail() {
+  var ui = ui_();
+  if (!ui) return null;
+  var store = PropertiesService.getScriptProperties(), cur = store.getProperty("SU_EMAIL") || "", admin = adminEmail_();
+  var sheet = findSheet_();
+  var fromSheet = suContact_(sheet ? parseRows_(sheet.getDataRange().getDisplayValues(), CFG).items : [], {}, admin);
+  var resp = ui.prompt("Emel Setiausaha (WhatsApp)",
+    "Emel Setiausaha Jabatan sekarang: " + (validEmail_(cur) ? cur + " (ditetapkan di sini)" : (fromSheet.email || "belum ada") + " (" + suSourceText_(fromSheet) + ")") + ".\n\n" +
+    "Setiausaha menerima emel WhatsApp pada hari bertugas dan salinan amaran kepada Ketua Jabatan.\n" +
+    "Tulis emel lain, atau tulis PADAM untuk kembali kepada emel dalam Sheet. Kosongkan untuk batal.",
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return null;
+  var txt = String(resp.getResponseText() || "").trim();
+  if (!txt) return null;
+  if (/^padam$/i.test(txt)) {
+    store.deleteProperty("SU_EMAIL");
+    alert_("Emel Setiausaha (WhatsApp)", "Emel yang ditetapkan di sini dipadam. Emel WhatsApp akan dihantar kepada: " +
+      (fromSheet.email || "-") + " (" + suSourceText_(fromSheet) + ").");
+    return "";
+  }
+  if (!validEmail_(txt)) { alert_("Emel Setiausaha (WhatsApp)", "Emel tidak sah: " + txt); return null; }
+  store.setProperty("SU_EMAIL", txt);
+  alert_("Emel Setiausaha (WhatsApp)", "Emel WhatsApp hari bertugas akan dihantar kepada " + txt + ".");
   return txt;
 }
 
@@ -292,9 +335,11 @@ function deadlineCheck() {
     if (!sheet) return { error: "Tab \"" + CFG.SHEET + "\" tidak dijumpai." };
     var parsed = parseRows_(ensureCodes_(sheet, CFG.DRY_RUN), CFG);
     if (!parsed.ok) return { error: parsed.error };
-    var conf = planConfirm_(parsed.items, today, hhmm, store.getProperties(), CFG);
+    var props = store.getProperties(), admin = adminEmail_(), su = suContact_(parsed.items, props, admin).email;
+    var conf = planConfirm_(parsed.items, today, hhmm, props, CFG);
+    conf.cc = [su, admin];
     if (CFG.DRY_RUN) { Logger.log(describeConfirm_(conf).join("\n")); return { dry: true, conf: conf }; }
-    return { conf: conf, result: executeConfirm_(conf, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: suEmail_(), today: today, hhmm: hhmm }) };
+    return { conf: conf, result: executeConfirm_(conf, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: su, admin: admin, today: today, hhmm: hhmm }) };
   } finally {
     lock.releaseLock();
   }
@@ -341,10 +386,12 @@ function confirmLmo(t, k, ticks) {
     upsertConfRow_(ss, store, today, r, { time: hhmm, status: status, checklist: CONF_CHECKLIST });
     if (status === "Lewat" && props["kj" + key] && !props["kjlate" + key]) {
       try {
-        var kj = kjEmail_(items, props), su = suEmail_(), m = kjLateMail_(r, today, props["kj" + key], hhmm);
+        var admin = adminEmail_(), su = suContact_(items, props, admin).email;
+        var kj = kjEmail_(items, props), m = kjLateMail_(r, today, props["kj" + key], hhmm);
         if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
-        var mail = { to: kj.email || su, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
-        if (kj.email && su) mail.cc = su;
+        var mail = { to: kj.email || su || admin, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
+        var cc = ccList_(mail.to, [su, admin]);
+        if (cc.length) mail.cc = cc.join(",");
         if (su) mail.replyTo = su;
         MailApp.sendEmail(mail);
         store.setProperty("kjlate" + key, hhmm);
@@ -385,13 +432,16 @@ function runCore_(opt) {
       plan.confirm = opt.time ? planConfirm_(plan.items, today, opt.time, props, CFG)
         : planConfirm_(plan.items, addDays_(today, -1), "23:59", props, CFG, true);
     }
+    var admin = adminEmail_(), su = suContact_(plan.items, props, admin).email;
+    plan.su = su;
+    plan.admin = admin;
+    if (plan.confirm) plan.confirm.cc = [su, admin];
     if (opt.dry) { plan.time = opt.time || ""; Logger.log(describePlan_(plan)); return { dry: true, plan: plan }; }
     if (!plan.ok) { reportBroken_(plan.error, today, store); return { plan: plan, error: plan.error }; }
-    var su = suEmail_();
-    var res = execute_(plan, { sheet: sheet, store: store, now: now, su: su });
+    var res = execute_(plan, { sheet: sheet, store: store, now: now, su: su, admin: admin });
     if (plan.confirm && plan.confirm.actions.length) {
       // All of yesterday evening's checks failed (e.g. Google was down): alert the KJ once now.
-      res.catchUp = executeConfirm_(plan.confirm, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: su, today: today, hhmm: hhmm_(now) });
+      res.catchUp = executeConfirm_(plan.confirm, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: su, admin: admin, today: today, hhmm: hhmm_(now) });
     }
     Logger.log(summary_({ plan: plan, result: res }));
     return { plan: plan, result: res };
@@ -452,17 +502,37 @@ function execute_(plan, env) {
   });
   out.problems.forEach(function (p) { note(p.row, p.text); });
 
-  var dg = buildDigest_(out);
-  if (dg && env.su) {
-    try {
-      if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
-      MailApp.sendEmail({ to: env.su, subject: dg.subject, body: dg.body, htmlBody: dg.html, name: CFG.SENDER_NAME });
-      out.digestSent = true;
-      out.wa.forEach(function (a) { store.setProperty(a.key, a.value); note(a.row, "Pautan WhatsApp diemel kepada SU"); });
-      out.problems.forEach(function (p) { if (p.key) store.setProperty(p.key, stamp); });
-    } catch (e2) {
-      out.digestError = errText_(e2);
-      Logger.log("Last Man Out: ringkasan kepada SU tidak dihantar: " + out.digestError);
+  // Same person (SU installed the script): one summary as before. Otherwise the SU gets only the WhatsApp part
+  // and the admin gets problems/warnings in a separate email (each problem reported once, as before).
+  var admin = env.admin || env.su || "", su = env.su || admin;
+  function sendMail(to, dg) {
+    if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
+    MailApp.sendEmail({ to: to, subject: dg.subject, body: dg.body, htmlBody: dg.html, name: CFG.SENDER_NAME });
+  }
+  function markWa() { out.digestSent = true; out.waTo = su; out.wa.forEach(function (a) { store.setProperty(a.key, a.value); note(a.row, "Pautan WhatsApp diemel kepada SU (" + su + ")"); }); }
+  function markProblems() { out.problems.forEach(function (p) { if (p.key) store.setProperty(p.key, stamp); }); }
+  if (sameEmail_(su, admin)) {
+    var dg = buildDigest_(out, "all", { admin: admin });
+    if (dg && su) {
+      try { sendMail(su, dg); markWa(); markProblems(); out.adminSent = true; } catch (e2) {
+        out.digestError = errText_(e2);
+        Logger.log("Last Man Out: ringkasan tidak dihantar: " + out.digestError);
+      }
+    }
+  } else {
+    var dsu = buildDigest_(out, "su", { admin: admin });
+    if (dsu) {
+      try { sendMail(su, dsu); markWa(); } catch (e3) {
+        out.digestError = errText_(e3);
+        Logger.log("Last Man Out: emel WhatsApp kepada SU tidak dihantar: " + out.digestError);
+      }
+    }
+    var dad = buildDigest_(out, "admin", { su: su, waError: out.digestError || "" });
+    if (dad && admin) {
+      try { sendMail(admin, dad); markProblems(); out.adminSent = true; } catch (e4) {
+        out.adminError = errText_(e4);
+        Logger.log("Last Man Out: laporan kepada pentadbir tidak dihantar: " + out.adminError);
+      }
     }
   }
 
@@ -498,13 +568,13 @@ function createLmoEvent_(cal, r, o) {
 }
 
 function reportBroken_(msg, today, store) {
-  var key = "warn|sheet|" + today, su = suEmail_();
+  var key = "warn|sheet|" + today, admin = adminEmail_();
   Logger.log("Last Man Out: " + msg);
-  if (store.getProperty(key) || !su) return;
+  if (store.getProperty(key) || !admin) return;
   try {
     if (MailApp.getRemainingDailyQuota() < 1) return;
     MailApp.sendEmail({
-      to: su, name: CFG.SENDER_NAME, subject: "Last Man Out " + dmy_(today) + ": skrip tidak dapat membaca Sheet",
+      to: admin, name: CFG.SENDER_NAME, subject: "Last Man Out " + dmy_(today) + ": skrip tidak dapat membaca Sheet",
       body: "Salam,\n\nSkrip Last Man Out tidak menghantar apa-apa hari ini kerana:\n" + msg +
         "\n\nCara membetulkan: dalam planner, buka Giliran Last Man Out > Eksport CSV untuk Google Sheet, kemudian import fail itu ke tab " +
         CFG.SHEET + " (Fail > Import > Gantikan helaian semasa).\n\nEmel ini dihantar oleh skrip Last Man Out dalam Google Sheet anda."
@@ -597,17 +667,18 @@ function executeConfirm_(conf, env) {
       if (a.type === "remind") {
         if (MailApp.getRemainingDailyQuota() < CFG.MIN_QUOTA) throw new Error("kuota emel harian hampir habis");
         var rm = { to: a.to, subject: a.subject, body: a.body, name: CFG.SENDER_NAME };
-        if (env.su) rm.replyTo = env.su;
+        if (env.su) rm.replyTo = env.su;   // replies (e.g. "I could not do it today") reach the SU
         MailApp.sendEmail(rm);
         store.setProperty(a.key, env.hhmm);
         res.sent.push(a);
       } else if (a.type === "kjalert") {
         if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
         var m = kjAlertMail_(r, a.day, a.catchUp, conf.kj.email);
-        var mail = { to: conf.kj.email || env.su, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
-        if (conf.kj.email && env.su) mail.cc = env.su;
+        var mail = { to: conf.kj.email || env.su || env.admin, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
+        var cc = ccList_(mail.to, [env.su, env.admin]);   // SU, and the admin only when different
+        if (cc.length) mail.cc = cc.join(",");
         if (env.su) mail.replyTo = env.su;
-        if (!mail.to) throw new Error("tiada penerima (emel Ketua Jabatan dan emel SU kosong)");
+        if (!mail.to) throw new Error("tiada penerima (emel Ketua Jabatan, Setiausaha dan pentadbir kosong)");
         MailApp.sendEmail(mail);
         store.setProperty(a.key, stamp);
         res.sent.push(a);
@@ -657,7 +728,8 @@ function upsertConfRow_(ss, store, day, r, f) {
   return row;
 }
 
-function suEmail_() {
+/** The account that installed and runs the script (receives problem reports and test emails). */
+function adminEmail_() {
   var e = "";
   try { e = Session.getEffectiveUser().getEmail(); } catch (x) { e = ""; }
   if (!e) try { e = Session.getActiveUser().getEmail(); } catch (y) { e = ""; }
@@ -1025,6 +1097,43 @@ function kjEmail_(items, props) {
   return best ? { email: first[best], source: "sheet" } : { email: "", source: "" };
 }
 
+/**
+ * Setiausaha Jabatan (receives the duty-day WhatsApp email; cc on KJ alerts):
+ * SU_EMAIL property, then the most common valid Emel of a row whose Jawatan is Setiausaha/Secretary, then the admin.
+ */
+function suContact_(items, props, admin) {
+  var p = String((props && props.SU_EMAIL) || "").trim();
+  if (validEmail_(p)) return { email: p, source: "property" };
+  var count = {}, first = {}, best = "", n = 0;
+  (items || []).forEach(function (r) {
+    if (!r.addr || !LMO_SU_RE.test(r.role || "")) return;
+    count[r.addr] = (count[r.addr] || 0) + 1;
+    if (!(r.addr in first)) first[r.addr] = r.email;
+    if (count[r.addr] > n) { n = count[r.addr]; best = r.addr; }
+  });
+  if (best) return { email: first[best], source: "sheet" };
+  return { email: admin || "", source: admin ? "admin" : "" };
+}
+
+function sameEmail_(a, b) { return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase(); }
+
+/** cc list without blanks, duplicates or the "to" address (so the admin is cc'd only when different from the SU). */
+function ccList_(to, list) {
+  var seen = {}, out = [];
+  if (to) seen[String(to).toLowerCase()] = true;
+  (list || []).forEach(function (e) {
+    var k = String(e || "").trim().toLowerCase();
+    if (k && !seen[k]) { seen[k] = true; out.push(String(e).trim()); }
+  });
+  return out;
+}
+
+/** BM description of where the SU address came from (menus and test emails). */
+function suSourceText_(su) {
+  return { property: "ditetapkan melalui menu Emel Setiausaha (WhatsApp)", sheet: "dari baris Setiausaha dalam Sheet",
+    admin: "tiada emel Setiausaha; dihantar kepada pentadbir" }[su.source] || "tiada";
+}
+
 /** The row a link points to: same ID and same (valid) code; otherwise null. */
 function findConfirmRow_(items, t, k) {
   t = String(t == null ? "" : t);
@@ -1127,8 +1236,8 @@ function mailSubject_(r) { return "Giliran Last Man Out (MQS): " + r.period; }
 function mailBody_(r) {
   return "Salam " + r.name + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " + r.period +
     ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + r.timeFrom + "–" + r.timeTo + "):\n" + lmoChecklist_() + paraAfter_(r) +
-    "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar." +
-    "\n\nTerima kasih.\n" + LMO_SIGNOFF;
+    "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan Setiausaha Jabatan segera supaya giliran boleh ditukar." +
+    "\n\nTerima kasih.\n" + LMO_MAIL_SIGNOFF;
 }
 
 function calTitle_(r) { return "Last Man Out (MQS): " + r.name; }
@@ -1144,7 +1253,7 @@ function picReminderMail_(r, day) {
     subject: "Peringatan: tekan Selesai Last Man Out sebelum " + r.deadline,
     body: "Salam " + r.name + ",\n\nTuan/puan bertugas sebagai Pegawai Last Man Out hari ini (" + longDate_(day) + "). Pengesahan belum diterima." +
       "\n\nSelepas selesai, tekan pautan ini dan tanda Selesai sebelum " + r.deadline + ":\n" + r.link +
-      "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + LMO_SIGNOFF
+      "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + LMO_MAIL_SIGNOFF
   };
 }
 
@@ -1156,10 +1265,10 @@ function kjAlertMail_(r, day, catchUp, kjAddr) {
   var body = "Salam Tuan/Puan Ketua Jabatan,\n\nUntuk makluman, Pegawai Last Man Out pada " + longDate_(day) + ", " + r.name +
     (rp ? " (" + rp + ")" : "") + ", belum menekan Selesai bagi senarai semak Last Man Out (MQS) sehingga " + r.deadline + ".\n\n" +
     lmoChecklist_() + (r.phone ? "\n\nHubungi pegawai: https://wa.me/" + r.phone : "") +
-    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab " + CONF_SHEET + ".\n\nEmel automatik, Setiausaha Jabatan JPPP.";
+    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab " + CONF_SHEET + ".\n\nEmel automatik, JPPP Smart Planner.";
   if (!kjAddr) {
-    body = "UNTUK SU: emel ini dihantar kepada anda sahaja kerana emel Ketua Jabatan belum ada. Isi emel Ketua Jabatan dalam planner " +
-      "(Kenalan pasukan, Jawatan: Ketua Jabatan) dan eksport semula CSV giliran, atau pilih menu Last Man Out > Emel Ketua Jabatan. " +
+    body = "UNTUK SU: emel ini dihantar kepada anda, bukan kepada Ketua Jabatan, kerana emel Ketua Jabatan belum ada. Isi emel Ketua Jabatan dalam planner " +
+      "(Kenalan pasukan, Jawatan: Ketua Jabatan) dan eksport semula CSV giliran, atau minta pentadbir skrip memilih menu Last Man Out > Emel Ketua Jabatan. " +
       "Sementara itu, sila majukan emel ini kepada Ketua Jabatan.\n\n----------\n\n" + body;
   }
   return { subject: "Last Man Out " + dmy_(day) + ": " + r.name + " belum mengesahkan tugas" + (catchUp ? " (semalam)" : ""), body: body };
@@ -1253,7 +1362,9 @@ function describeConfirm_(conf) {
     var r = a.item;
     if (a.type === "remind") return "- Peringatan Selesai kepada " + r.name + " (" + a.to + "): \"" + a.subject + "\"";
     if (a.type === "kjalert") {
-      return "- Amaran kepada Ketua Jabatan (" + (conf.kj.email ? conf.kj.email + ", salinan kepada anda" : "tiada emel KJ: kepada anda sahaja") + "): " +
+      var su = (conf.cc || [])[0] || "", to = conf.kj.email || su, cc = ccList_(to, conf.cc || []);
+      return "- Amaran kepada " + (conf.kj.email ? "Ketua Jabatan (" + conf.kj.email + ")" : "Setiausaha Jabatan (" + (su || "-") + "; tiada emel KJ)") +
+        (cc.length ? ", salinan kepada " + cc.join(", ") : "") + ": " +
         r.name + " belum mengesahkan tugas " + dmy_(a.day) + (a.catchUp ? " (semalam)" : "") + "; rekod \"Tidak disahkan\" dalam tab " + CONF_SHEET;
     }
     return "- Rekod \"Tiada tugas\" untuk " + r.name + " (" + dmy_(a.day) + ") dalam tab " + CONF_SHEET;
@@ -1261,12 +1372,24 @@ function describeConfirm_(conf) {
 }
 
 /**
- * The SU's daily email: WhatsApp link(s) for today's officer, what was sent, what needs her action.
- * Returns null when there is nothing to report.
+ * The daily email(s). audience:
+ *   "all"   one person is both SU and admin: WhatsApp link(s), what was sent, what needs action (the original summary);
+ *   "su"    the Setiausaha: only the WhatsApp part (who is on duty, the wa.me link, or the text to copy);
+ *   "admin" the installer: what was sent, cancellations, problems, errors, quota (only when one of the last four exists).
+ * info: { admin, su, waError }. Returns null when there is nothing to report.
  */
-function buildDigest_(out) {
-  var wa = out.wa || [], sent = out.sent || [], cancelled = out.cancelled || [], problems = out.problems || [], errors = out.errors || [];
-  if (!wa.length && !sent.length && !cancelled.length && !problems.length && !errors.length && out.quotaLow == null) return null;
+function buildDigest_(out, audience, info) {
+  audience = audience || "all";
+  info = info || {};
+  var forSu = audience === "su", forAdmin = audience === "admin";
+  var wa = forAdmin ? [] : out.wa || [], sent = forSu ? [] : out.sent || [], cancelled = forSu ? [] : out.cancelled || [];
+  var problems = forSu ? [] : out.problems || [], errors = forSu ? [] : out.errors || [], quotaLow = forSu ? null : out.quotaLow;
+  if (forAdmin && info.waError && (out.wa || []).length) {
+    problems = problems.concat([{ text: "Emel WhatsApp hari bertugas kepada Setiausaha Jabatan (" + info.su + ") tidak dihantar: " + info.waError +
+      ". Skrip akan cuba lagi esok jika giliran masih berjalan." }]);
+  }
+  if (forAdmin) { if (!cancelled.length && !problems.length && !errors.length && quotaLow == null) return null; }
+  else if (!wa.length && !sent.length && !cancelled.length && !problems.length && !errors.length && quotaLow == null) return null;
   var txt = [], html = [];
   function para(t) { txt.push(t); html.push("<p>" + esc_(t).replace(/\n/g, "<br>") + "</p>"); }
   function head(t) { txt.push(t.toUpperCase()); html.push("<h3 style=\"margin:18px 0 6px\">" + esc_(t) + "</h3>"); }
@@ -1317,15 +1440,23 @@ function buildDigest_(out) {
     todo.push("Ralat semasa " + actionLabel_(e.action) + " untuk " + (r && r.name ? r.name : e.action.id) + ": " + e.message +
       ". Skrip akan cuba lagi esok jika masih sempat.");
   });
-  if (out.quotaLow != null) {
-    todo.push("Kuota emel harian akaun ini hampir habis (baki " + out.quotaLow + "). Emel yang belum dihantar akan dicuba semula esok, sebelum giliran bermula.");
+  if (quotaLow != null) {
+    todo.push("Kuota emel harian akaun ini hampir habis (baki " + quotaLow + "). Emel yang belum dihantar akan dicuba semula esok, sebelum giliran bermula.");
   }
   if (todo.length) { head("Perlu tindakan anda"); list(todo); }
-  para("Emel ini dihantar oleh skrip Last Man Out dalam Google Sheet anda (tab " + CFG.SHEET + "). Untuk berhenti: menu Last Man Out > Henti automatik.");
+  if (forAdmin && (out.wa || []).length && !info.waError) {
+    para("Pautan WhatsApp hari ini untuk " + out.wa.map(function (a) { return a.item.name; }).join(", ") +
+      " telah diemel kepada Setiausaha Jabatan (" + info.su + ").");
+  }
+  if (forSu) {
+    para("Emel automatik daripada JPPP Smart Planner (skrip Last Man Out" + (info.admin ? ", dipasang oleh " + info.admin + "; hubungi beliau untuk sebarang perubahan" : "") + ").");
+  } else {
+    para("Emel ini dihantar oleh skrip Last Man Out dalam Google Sheet anda (tab " + CFG.SHEET + "). Untuk berhenti: menu Last Man Out > Henti automatik.");
+  }
 
   var subject = "Last Man Out " + dmy_(out.today) + ": " + (wa.length
     ? "hantar WhatsApp kepada " + wa.map(function (a) { return a.item.name; }).join(", ")
-    : sent.length ? "notis giliran dihantar" : "perlu semakan");
+    : sent.length && !forAdmin ? "notis giliran dihantar" : "perlu semakan");
   return {
     subject: subject,
     body: txt.join("\n\n"),
@@ -1344,7 +1475,10 @@ function describePlan_(plan) {
       lines.push("- Jemputan Google Calendar kepada " + r.name + " (" + a.guest + "): " + r.days.length + " hari bekerja, " +
         r.timeFrom + "–" + r.timeTo + (r.days.length > 1 ? " (berulang setiap hari)" : ""));
     } else if (a.type === "delcal") lines.push("- Batalkan jemputan kalendar untuk " + a.addr + " (" + a.why + ")");
-    else if (a.type === "wa") lines.push("- Emel kepada anda dengan pautan WhatsApp untuk " + r.name + (a.url ? "" : " (tiada No. WhatsApp; mesej untuk disalin)"));
+    else if (a.type === "wa") {
+      lines.push("- Emel kepada Setiausaha Jabatan" + (plan.su ? " (" + plan.su + ")" : "") + " dengan pautan WhatsApp untuk " + r.name +
+        (a.url ? "" : " (tiada No. WhatsApp; mesej untuk disalin)"));
+    }
   });
   var text = "Pada " + longDate_(plan.today) + " skrip akan:\n" + (lines.length ? lines.join("\n") : "- Tiada notis perlu dihantar.");
   if (plan.confirm) {
@@ -1372,9 +1506,13 @@ function summary_(r) {
   var mails = o.sent.filter(function (a) { return a.type === "email"; }).length, cals = o.sent.length - mails;
   if (mails || cals) lines.push("Dihantar: " + mails + " emel, " + cals + " jemputan Google Calendar.");
   if (o.cancelled.length) lines.push("Jemputan kalendar dibatalkan: " + o.cancelled.length + ".");
-  if (o.wa.length) lines.push("Pautan WhatsApp untuk " + o.wa.map(function (a) { return a.item.name; }).join(", ") + (o.digestSent ? " telah diemel kepada anda." : " belum diemel."));
-  if (o.problems.length || o.errors.length || o.quotaLow != null) lines.push("Ada perkara yang perlu tindakan anda; lihat emel ringkasan dan lajur \"Catatan skrip\".");
-  if (o.digestError) lines.push("Emel ringkasan tidak dihantar: " + o.digestError);
+  if (o.wa.length) {
+    lines.push("Pautan WhatsApp untuk " + o.wa.map(function (a) { return a.item.name; }).join(", ") +
+      (o.digestSent ? " telah diemel kepada Setiausaha Jabatan (" + o.waTo + ")." : " belum diemel."));
+  }
+  if (o.problems.length || o.errors.length || o.quotaLow != null) lines.push("Ada perkara yang perlu tindakan anda; lihat emel laporan dan lajur \"Catatan skrip\".");
+  if (o.digestError) lines.push("Emel WhatsApp/ringkasan tidak dihantar: " + o.digestError);
+  if (o.adminError) lines.push("Emel laporan kepada anda tidak dihantar: " + o.adminError);
   if (o.catchUp && o.catchUp.sent.length) lines.push("Amaran Selesai semalam dihantar kepada Ketua Jabatan: " + o.catchUp.sent.length + ".");
   return lines.length ? lines.join("\n") : "Tiada notis perlu dihantar hari ini.";
 }

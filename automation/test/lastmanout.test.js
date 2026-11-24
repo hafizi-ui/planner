@@ -13,7 +13,11 @@ const FIXTURE = path.join(__dirname, "fixtures", "sample-giliran.csv");
 // Contract 2 (18 columns since the Selesai addendum) and the old 14-column header, which must keep working.
 const HEADER14 = "ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar".split(",");
 const HEADER = HEADER14.concat(["Had pengesahan", "Kod pengesahan", "Emel KJ", "Hari tiada tugas"]);
+// The mock's installer (Session.getEffectiveUser). With no SU_EMAIL property and no Setiausaha row, the SU resolves to
+// the installer, so the original tests describe the "same person" case. Tests with a separate SU use SU2 / ADMIN2.
 const SU = "su@example.com";
+const ADMIN2 = "pentadbir@example.com";
+const SU2 = "setiausaha.ujian@example.com";
 const KJ = "kj.ujian@example.com";
 const WEBAPP = "https://script.google.com/macros/s/AKfycbTestDeployment_0123456789/exec";
 const CODE1 = "Kod_Ujian-0000000001";   // 20 chars, matches [A-Za-z0-9_-]{16,64}
@@ -21,7 +25,8 @@ const CODE1 = "Kod_Ujian-0000000001";   // 20 chars, matches [A-Za-z0-9_-]{16,64
 // Section E templates, written out in full so the tests check the contract, not the script against itself.
 const SENARAI = "1. Semua lampu ditutup\n2. Penyaman udara & kipas dimatikan\n3. Suis utama dimatikan / palam dicabut\n" +
   "4. Pintu utama & tingkap dikunci\n5. Tandatangan borang & catat masa keluar";
-const SIGNOFF = "Setiausaha Jabatan JPPP, KPTM Kuantan";
+const SIGNOFF = "Setiausaha Jabatan JPPP, KPTM Kuantan";                // WhatsApp (sent by the SU herself)
+const MAIL_SIGNOFF = "JPPP Smart Planner, Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan";   // emails from the script
 const WEEK1 = "Isnin, 7 Disember 2026 hingga Jumaat, 11 Disember 2026";
 // Addendum section 1: the confirmation paragraph that follows the checklist (with or without the personal link).
 const paraLink = (had, url) => "Selepas tugas selesai setiap hari bertugas, tekan pautan ini dan tanda Selesai sebelum " + had + ":\n" + url +
@@ -33,7 +38,7 @@ const link = (id, code) => WEBAPP + "?t=" + id + "&k=" + code;
 const expectSubject = (tempoh) => "Giliran Last Man Out (MQS): " + tempoh;
 const expectBody = (nama, tempoh, from, to, para = NO_LINK) => "Salam " + nama + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " +
   tempoh + ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + SENARAI + "\n\n" + para +
-  "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar.\n\nTerima kasih.\n" + SIGNOFF;
+  "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan Setiausaha Jabatan segera supaya giliran boleh ditukar.\n\nTerima kasih.\n" + MAIL_SIGNOFF;
 const expectWa = (nama, bila, tempoh, from, para = NO_LINK) => "Salam " + nama + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + bila +
   " (" + tempoh + ").\n\nSebelum pulang (sekitar " + from + "), sila pastikan:\n" + SENARAI + "\n\n" + para + "\n\nTerima kasih.\n" + SIGNOFF;
 const calDetails = (para = NO_LINK) => "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + SENARAI + "\n\n" + para +
@@ -186,7 +191,7 @@ test("D−2: email + createEventSeries(times(5)) with sendInvites, stamps and re
   assert.equal(mails[0].to, "ujian1@example.com");
   assert.equal(mails[0].subject, expectSubject(WEEK1));
   assert.equal(mails[0].body, expectBody("Pensyarah Ujian 1", WEEK1, "16:45", "17:15"));
-  assert.equal(mails[0].name, "Setiausaha Jabatan JPPP");
+  assert.equal(mails[0].name, "JPPP Smart Planner");
   assert.equal(mails[0].replyTo, SU);
 
   assert.equal(gas.rec.events.length, 1);
@@ -493,9 +498,14 @@ test("the sample rota CSV (Contract 2) imports and plans correctly", () => {
   gas.setNow(at("2027-01-02T07:10:00"));
   gas.ctx.dailyRun();
   assert.equal(officerMails(gas.rec).pop().to, "ujian3@example.com");
+  // The fixture has a Setiausaha row (su.ujian@example.com), so the WhatsApp email goes to her, not to the installer
+  const toInstaller = digests(gas.rec).length;
   gas.setNow(at("2027-01-04T07:10:00"));
   gas.ctx.dailyRun();
-  assert.match(digests(gas.rec).pop().body, /Tiada No\. WhatsApp yang sah/);
+  const wa = gas.rec.emails.filter((m) => m.to === "su.ujian@example.com");
+  assert.equal(wa.length, 1);
+  assert.match(wa[0].body, /Tiada No\. WhatsApp yang sah/);
+  assert.equal(digests(gas.rec).length, toInstaller, "nothing to report to the installer that day");
 });
 
 test("install() twice leaves exactly 2 triggers (daily 7am + deadlineCheck every 10 min); uninstall() removes both", () => {
@@ -526,6 +536,7 @@ test("onOpen adds the Last Man Out menu", () => {
     "Jalankan sekarang -> runNow",
     "Pautan Selesai (web app) -> showWebAppUrl",
     "Emel Ketua Jabatan -> setKjEmail",
+    "Emel Setiausaha (WhatsApp) -> setSuEmail",
     "Henti automatik -> uninstall"
   ]);
   for (const i of gas.rec.menus[0].items) if (i.fn) assert.equal(typeof gas.ctx[i.fn], "function", i.fn + " exists");
@@ -811,7 +822,7 @@ test("deadlineCheck: 18:14 nothing, 18:15 one reminder, 18:30 one KJ alert (SU c
   assert.equal(rem.subject, "Peringatan: tekan Selesai Last Man Out sebelum 18:30");
   assert.equal(rem.body, "Salam Pensyarah Ujian 1,\n\nTuan/puan bertugas sebagai Pegawai Last Man Out hari ini (Selasa, 8 Disember 2026). Pengesahan belum diterima." +
     "\n\nSelepas selesai, tekan pautan ini dan tanda Selesai sebelum 18:30:\n" + link(ID1, CODE1) +
-    "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + SIGNOFF);
+    "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + MAIL_SIGNOFF);
   gas.setNow(at("2026-12-08T18:30:00"));
   gas.ctx.deadlineCheck();
   gas.setNow(at("2026-12-08T18:40:00"));
@@ -822,7 +833,7 @@ test("deadlineCheck: 18:14 nothing, 18:15 one reminder, 18:30 one KJ alert (SU c
   assert.equal(kj.subject, "Last Man Out 8/12/2026: Pensyarah Ujian 1 belum mengesahkan tugas");
   assert.equal(kj.body, "Salam Tuan/Puan Ketua Jabatan,\n\nUntuk makluman, Pegawai Last Man Out pada Selasa, 8 Disember 2026, Pensyarah Ujian 1 (Pensyarah / AA101), " +
     "belum menekan Selesai bagi senarai semak Last Man Out (MQS) sehingga 18:30.\n\n" + SENARAI + "\n\nHubungi pegawai: https://wa.me/60120000001" +
-    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab Pengesahan.\n\nEmel automatik, Setiausaha Jabatan JPPP.");
+    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab Pengesahan.\n\nEmel automatik, JPPP Smart Planner.");
   assert.deepEqual(confRows(gas), [CONF_HEAD, ["2026-12-08", ID1, "Pensyarah Ujian 1", "", "Tidak disahkan", "", "18:15", "18:30", ""]]);
   assert.equal(gas.rec.locks, 0, "lock released");
   // no phone: no "Hubungi pegawai" line
@@ -898,7 +909,7 @@ test("KJ email order: KJ_EMAIL property, then the most common Emel KJ in the She
   const m = nokj.rec.emails[0];
   assert.equal(m.to, SU);
   assert.equal(m.cc, undefined);
-  assert.match(m.body, /^UNTUK SU: emel ini dihantar kepada anda sahaja kerana emel Ketua Jabatan belum ada\./);
+  assert.match(m.body, /^UNTUK SU: emel ini dihantar kepada anda, bukan kepada Ketua Jabatan, kerana emel Ketua Jabatan belum ada\./);
   assert.match(m.body, /Salam Tuan\/Puan Ketua Jabatan/);
 });
 
@@ -982,7 +993,7 @@ test("turns that began before the web app URL was saved get no KJ alert (WEBAPP_
 
 test("menu functions do nothing without the Sheets UI (e.g. called through google.script.run from the web page)", () => {
   const gas = selesaiGas({}, { now: at("2026-12-05T07:10:00"), noUi: true, triggers: [{ fn: "dailyRun" }], promptText: "orang@example.com" });
-  for (const fn of ["install", "uninstall", "runNow", "testRun", "sendTestToMe", "showWebAppUrl", "setKjEmail"]) {
+  for (const fn of ["install", "uninstall", "runNow", "testRun", "sendTestToMe", "showWebAppUrl", "setKjEmail", "setSuEmail"]) {
     assert.equal(gas.ctx[fn](), null, fn);
   }
   assert.equal(nothingWritten(gas.rec), 0);
@@ -1027,7 +1038,7 @@ test("Uji tanpa hantar accepts '8/12/2026 18:35' and lists the reminder / KJ ale
   late.ctx.testRun();
   const a = late.rec.alerts.pop();
   assert.equal(a.title, "Uji tanpa hantar: Selasa, 8 Disember 2026 18:35");
-  assert.match(a.message, /Semakan butang Selesai pada 18:35:\n- Amaran kepada Ketua Jabatan \(kj\.ujian@example\.com, salinan kepada anda\): Pensyarah Ujian 1 belum mengesahkan tugas 8\/12\/2026/);
+  assert.match(a.message, /Semakan butang Selesai pada 18:35:\n- Amaran kepada Ketua Jabatan \(kj\.ujian@example\.com\), salinan kepada su@example\.com: Pensyarah Ujian 1 belum mengesahkan tugas 8\/12\/2026/);
   const soon = selesaiGas({}, { now: at("2026-11-30T10:00:00"), promptText: "8/12/2026 18:20" });
   soon.ctx.testRun();
   assert.match(soon.rec.alerts.pop().message, /- Peringatan Selesai kepada Pensyarah Ujian 1 \(ujian1@example\.com\): "Peringatan: tekan Selesai Last Man Out sebelum 18:30"/);
@@ -1046,6 +1057,151 @@ test("sample CSV fixture: the 4 new columns are read (Had pengesahan, Kod penges
   assert.equal(g.kjEmail_(items, {}).email, KJ);
   assert.ok(items.filter((r) => r.name && !r.off).every((r) => g.validCode_(r.code)), "every named turn has a code");
   assert.equal(items[3].code, "", "holiday row has no code");
+});
+
+/* =================== Installer (admin) vs Setiausaha (SU) roles (owner decisions, 24 Nov) =================== */
+
+/** The SU's own turn somewhere in the rota (Jawatan Setiausaha): this is where her email comes from. */
+const suRow = (o) => row(Object.assign({ id: "lmo-2027-01-11", start: "2027-01-11", end: "2027-01-15", name: "Setiausaha Ujian", email: SU2,
+  phone: "60120000005", role: "Setiausaha", prog: "", code: "Kod_Ujian-0000000005", kj: KJ }, o || {}));
+const to = (rec, addr) => rec.emails.filter((m) => m.to === addr);
+
+test("roles pure: SU = SU_EMAIL property, else the most common Setiausaha row email, else the installer", () => {
+  const g = loadPure();
+  const items = (...rs) => g.parseRows_([HEADER].concat(rs), g.CFG).items;
+  const sheet = items(weekRow(), suRow(), suRow({ id: "lmo-2027-03-01", start: "2027-03-01", end: "2027-03-05" }),
+    suRow({ id: "lmo-2027-05-03", start: "2027-05-03", end: "2027-05-07", email: "lain@example.com" }));
+  assert.deepEqual(plain(g.suContact_(sheet, { SU_EMAIL: " su.baru@example.com " }, ADMIN2)), { email: "su.baru@example.com", source: "property" });
+  assert.deepEqual(plain(g.suContact_(sheet, { SU_EMAIL: "bukan emel" }, ADMIN2)), { email: SU2, source: "sheet" }, "invalid property ignored; most common row");
+  assert.deepEqual(plain(g.suContact_(items(weekRow(), suRow({ role: "Secretary" })), {}, ADMIN2)), { email: SU2, source: "sheet" }, "English role");
+  assert.deepEqual(plain(g.suContact_(items(weekRow(), suRow({ email: "" })), {}, ADMIN2)), { email: ADMIN2, source: "admin" }, "Setiausaha row without email");
+  assert.deepEqual(plain(g.suContact_(items(weekRow()), {}, ADMIN2)), { email: ADMIN2, source: "admin" });
+  assert.deepEqual([...g.ccList_(KJ, [SU2, ADMIN2])], [SU2, ADMIN2]);
+  assert.deepEqual([...g.ccList_(KJ, [SU, "SU@example.com"])], [SU], "admin only when different from the SU");
+  assert.deepEqual([...g.ccList_(SU2, [SU2, ADMIN2])], [ADMIN2], "never cc the 'to' address");
+});
+
+test("roles: duty-day WhatsApp email goes to the SU (WhatsApp part only); the installer gets nothing when all is well", () => {
+  const props = { "email|lmo-2026-12-07|ujian1@example.com": "x", "cal|lmo-2026-12-07|ujian1@example.com": "e" };
+  const gas = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, props, now: at("2026-12-07T07:10:00") });
+  gas.ctx.dailyRun();
+  assert.equal(to(gas.rec, ADMIN2).length, 0);
+  const wa = to(gas.rec, SU2);
+  assert.equal(wa.length, 1);
+  assert.equal(wa[0].subject, "Last Man Out 7/12/2026: hantar WhatsApp kepada Pensyarah Ujian 1");
+  assert.equal(wa[0].name, "JPPP Smart Planner");
+  const m = /https:\/\/wa\.me\/(\d+)\?text=(\S+)/.exec(wa[0].body);
+  assert.equal(decodeURIComponent(m[2]), expectWa("Pensyarah Ujian 1", "minggu ini", WEEK1, "16:45"));
+  assert.ok(decodeURIComponent(m[2]).endsWith("\n\nTerima kasih.\nSetiausaha Jabatan JPPP, KPTM Kuantan"), "WhatsApp keeps the SU's signoff");
+  assert.doesNotMatch(wa[0].body, /PERLU TINDAKAN|SUDAH DIHANTAR|Henti automatik/);
+  assert.match(wa[0].body, /dipasang oleh pentadbir@example\.com/);
+  assert.equal(gas.store["digest|lmo-2026-12-07"], "Pensyarah Ujian 1");
+  gas.ctx.dailyRun();
+  assert.equal(gas.rec.emails.length, 1, "not repeated");
+  // SU_EMAIL property wins over the Setiausaha row
+  const prop = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, props: Object.assign({ SU_EMAIL: "su.baru@example.com" }, props), now: at("2026-12-07T07:10:00") });
+  prop.ctx.dailyRun();
+  assert.deepEqual(prop.rec.emails.map((x) => x.to), ["su.baru@example.com"]);
+});
+
+test("roles: problems go to the installer in a separate email, once; the SU's email has no problems", () => {
+  // Daily turns: A on Mon 7 Dec (WhatsApp today), B on Wed 9 Dec without email (D−2 today)
+  const props = { "email|lmo-2026-12-07|ujian1@example.com": "x", "cal|lmo-2026-12-07|ujian1@example.com": "e" };
+  const rows = [HEADER, row({ start: "2026-12-07" }), row({ start: "2026-12-09", name: "Pensyarah Ujian 4", email: "" }), suRow()];
+  const gas = createGas({ rows, user: ADMIN2, props, now: at("2026-12-07T07:10:00") });
+  gas.ctx.dailyRun();
+  const su = to(gas.rec, SU2), admin = to(gas.rec, ADMIN2);
+  assert.equal(su.length, 1);
+  assert.doesNotMatch(su[0].body, /tiada emel yang sah|Pensyarah Ujian 4/);
+  assert.equal(admin.length, 1);
+  assert.equal(admin[0].subject, "Last Man Out 7/12/2026: perlu semakan");
+  assert.match(admin[0].body, /Pensyarah Ujian 4 \(Rabu, 9 Disember 2026\): tiada emel yang sah/);
+  assert.match(admin[0].body, /Pautan WhatsApp hari ini untuk Pensyarah Ujian 1 telah diemel kepada Setiausaha Jabatan \(setiausaha\.ujian@example\.com\)\./);
+  assert.doesNotMatch(admin[0].body, /wa\.me/);
+  gas.setNow(at("2026-12-08T07:10:00"));
+  gas.ctx.dailyRun();
+  assert.equal(to(gas.rec, ADMIN2).length, 1, "the same problem is not emailed again");
+  // Sent notices alone are not reported to a separate installer (no daily nagging)
+  const quiet = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, now: at("2026-12-05T07:10:00") });
+  quiet.ctx.dailyRun();
+  assert.deepEqual(quiet.rec.emails.map((x) => x.to), ["ujian1@example.com"]);
+  // Low quota is reported to the installer
+  const q = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, quota: 4, now: at("2026-12-05T07:10:00") });
+  q.ctx.dailyRun();
+  assert.deepEqual(q.rec.emails.map((x) => x.to), [ADMIN2]);
+  assert.match(q.rec.emails[0].body, /Kuota emel harian akaun ini hampir habis \(baki 4\)/);
+  // A missing tab is reported to the installer
+  const broken = createGas({ rows: [["Nota"]], sheetName: "Helaian1", user: ADMIN2, now: at("2026-12-05T07:10:00") });
+  broken.ctx.dailyRun();
+  assert.deepEqual(broken.rec.emails.map((x) => x.to), [ADMIN2]);
+});
+
+test("roles: officer emails are sent as JPPP Smart Planner, signed by it, with replies going to the SU", () => {
+  const gas = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, now: at("2026-12-05T07:10:00") });
+  gas.ctx.dailyRun();
+  const mail = to(gas.rec, "ujian1@example.com")[0];
+  assert.deepEqual([mail.name, mail.replyTo], ["JPPP Smart Planner", SU2]);
+  assert.ok(mail.body.endsWith("\n\nTerima kasih.\nJPPP Smart Planner, Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan"));
+  assert.match(mail.body, /sila maklumkan Setiausaha Jabatan segera supaya giliran boleh ditukar\./);
+  assert.doesNotMatch(mail.body, /maklumkan saya|Setiausaha Jabatan JPPP, KPTM Kuantan/);
+  // PIC reminder
+  const rem = selesaiGas({}, { now: at("2026-12-08T18:20:00"), user: ADMIN2 });
+  rem.setRows([HEADER, weekRow({ code: CODE1, kj: KJ }), suRow()]);
+  rem.ctx.deadlineCheck();
+  const r = to(rem.rec, "ujian1@example.com")[0];
+  assert.deepEqual([r.name, r.replyTo], ["JPPP Smart Planner", SU2]);
+  assert.ok(r.body.endsWith("\n\nTerima kasih.\n" + MAIL_SIGNOFF));
+});
+
+test("roles: KJ alert and late follow-up go to the KJ with the SU and the installer in cc, replies to the SU", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:31:00"), user: ADMIN2 });
+  gas.setRows([HEADER, weekRow({ code: CODE1, kj: KJ }), suRow()]);
+  gas.ctx.deadlineCheck();
+  const a = gas.rec.emails[0];
+  assert.deepEqual([a.to, a.cc, a.replyTo, a.name], [KJ, SU2 + "," + ADMIN2, SU2, "JPPP Smart Planner"]);
+  assert.ok(a.body.endsWith("\n\nEmel automatik, JPPP Smart Planner."));
+  gas.setNow(at("2026-12-08T18:45:00"));
+  gas.ctx.confirmLmo(ID1, CODE1, TICKS);
+  const f = gas.rec.emails[1];
+  assert.deepEqual([f.to, f.cc, f.replyTo], [KJ, SU2 + "," + ADMIN2, SU2]);
+  // No KJ email: to the SU, installer in cc
+  const nokj = selesaiGas({}, { now: at("2026-12-08T18:31:00"), user: ADMIN2 });
+  nokj.setRows([HEADER, weekRow({ code: CODE1 }), suRow({ kj: "" })]);
+  nokj.ctx.deadlineCheck();
+  assert.deepEqual([nokj.rec.emails[0].to, nokj.rec.emails[0].cc], [SU2, ADMIN2]);
+  assert.match(nokj.rec.emails[0].body, /^UNTUK SU: /);
+  // Morning catch-up uses the same recipients
+  const cu = selesaiGas({}, { now: at("2026-12-09T07:10:00"), user: ADMIN2 });
+  cu.setRows([HEADER, weekRow({ code: CODE1, kj: KJ }), suRow()]);
+  cu.ctx.dailyRun();
+  const kjMail = to(cu.rec, KJ)[0];
+  assert.deepEqual([kjMail.cc, kjMail.subject], [SU2 + "," + ADMIN2, "Last Man Out 8/12/2026: Pensyarah Ujian 1 belum mengesahkan tugas (semalam)"]);
+});
+
+test("roles: menu Emel Setiausaha (WhatsApp) sets, clears (PADAM) and rejects; test emails still go to the installer", () => {
+  const set = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, promptText: "su.baru@example.com" });
+  assert.equal(set.ctx.setSuEmail(), "su.baru@example.com");
+  assert.equal(set.store.SU_EMAIL, "su.baru@example.com");
+  assert.match(set.rec.prompts[0].message, /setiausaha\.ujian@example\.com \(dari baris Setiausaha dalam Sheet\)/);
+  const clear = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, promptText: "PADAM", props: { SU_EMAIL: "su.baru@example.com" } });
+  assert.equal(clear.ctx.setSuEmail(), "");
+  assert.equal(clear.store.SU_EMAIL, undefined);
+  assert.match(clear.rec.alerts.pop().message, /setiausaha\.ujian@example\.com/);
+  const bad = createGas({ rows: [HEADER, weekRow()], promptText: "bukan emel" });
+  assert.equal(bad.ctx.setSuEmail(), null);
+  assert.equal(bad.rec.propWrites.length, 0);
+  const noUi = createGas({ rows: [HEADER, weekRow()], promptText: "x@example.com", noUi: true });
+  assert.equal(noUi.ctx.setSuEmail(), null);
+  assert.equal(noUi.rec.propWrites.length, 0);
+
+  const test2 = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2, now: at("2026-11-30T10:00:00") });
+  test2.ctx.sendTestToMe();
+  assert.deepEqual(test2.rec.emails.map((x) => x.to), [ADMIN2, ADMIN2]);
+  assert.match(test2.rec.emails[1].body, /contoh emel yang Setiausaha Jabatan \(setiausaha\.ujian@example\.com\) akan terima/);
+  assert.match(test2.rec.alerts.pop().message, /akan dihantar kepada Setiausaha Jabatan: setiausaha\.ujian@example\.com \(dari baris Setiausaha dalam Sheet\)/);
+  const inst = createGas({ rows: [HEADER, weekRow(), suRow()], user: ADMIN2 });
+  inst.ctx.install();
+  assert.match(inst.rec.alerts.pop().message, /Emel WhatsApp hari bertugas kepada: setiausaha\.ujian@example\.com[\s\S]*Laporan masalah kepada: pentadbir@example\.com/);
 });
 
 /* =================== Privacy =================== */

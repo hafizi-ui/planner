@@ -106,13 +106,16 @@ The planner has no server, so a banner (*"Last Man Out: notis untuk ... perlu di
 
 ## Automation with Google Apps Script
 
-An optional script in [`automation/`](automation/) runs every morning (about 7 am Malaysia time, weekends included) inside the secretary's own KPTM Google account:
+An optional script in [`automation/`](automation/) runs every morning (about 7 am Malaysia time, weekends included). Any staff member can install it in their own KPTM Google account; that person is the **admin**. Emails and invitations go out from the admin's account under the sender name **JPPP Smart Planner**.
 
-- **2 days before each turn**, it emails the duty officer and sends a Google Calendar invitation (a daily series for a weekly turn, at the duty time, with a 30-minute pop-up reminder on the secretary's copy).
-- **On the first day of the turn**, it emails the secretary a one-tap `wa.me` link with the WhatsApp reminder already written. WhatsApp cannot be sent automatically without the paid WhatsApp Business Platform, so she only taps **Send**.
-- It never sends the same notice twice, catches up after a missed morning (until the turn starts), skips holiday weeks, cancels the old invitation when a turn is swapped, and stops before the daily email quota runs out. Anything that needs her attention (missing email, errors) is listed in her daily summary email.
+- **2 days before each turn**, it emails the duty officer and sends a Google Calendar invitation (a daily series for a weekly turn, at the duty time, with a 30-minute pop-up reminder on the admin's copy). Replies go to the secretary (Reply-To).
+- **On the first day of the turn**, it emails the **secretary (SU)** a one-tap `wa.me` link with the WhatsApp reminder already written. WhatsApp cannot be sent automatically without the paid WhatsApp Business Platform, so she only taps **Send** on her phone.
+- The SU's address comes from, in order: the menu **Last Man Out › Emel Setiausaha (WhatsApp)**, the email on the rota row whose Jawatan is Setiausaha, or the admin.
+- It never sends the same notice twice, catches up after a missed morning (until the turn starts), skips holiday weeks, cancels the old invitation when a turn is swapped, and stops before the daily email quota runs out. Problems (missing email, errors, quota, cancelled invitations) go to the **admin** in a short report, once per problem. If the SU installed the script herself, everything arrives in one daily summary.
 
-Setup: export **Eksport CSV untuk Google Sheet** from the planner, import it into a private Google Sheet tab named `Giliran`, paste [`LastManOut.gs`](automation/LastManOut.gs) into **Extensions › Apps Script**, then choose **Last Man Out › Pasang (sekali sahaja)**. Step-by-step guide in Bahasa Melayu: **[automation/PANDUAN.md](automation/PANDUAN.md)**. Afterwards, tick **Emel & kalendar dihantar automatik oleh Google Apps Script** in the planner so the banner only asks for WhatsApp.
+**Message texts.** The WhatsApp text is the SU's own message, so it is identical to the planner's and signed "Setiausaha Jabatan JPPP, KPTM Kuantan". The script's **emails** intentionally differ from the planner's (which the SU sends herself in planner-only mode): they are signed "JPPP Smart Planner, Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan" and ask officers to tell the **Setiausaha Jabatan** (not "saya") if they cannot do the duty. Calendar titles and descriptions are the same in both.
+
+Setup: the SU exports **Eksport CSV untuk Google Sheet** from her planner; the admin imports it into a private Google Sheet tab named `Giliran` (or shares the Sheet with the SU so she can import it), pastes [`LastManOut.gs`](automation/LastManOut.gs) into **Extensions › Apps Script**, then chooses **Last Man Out › Pasang (sekali sahaja)**. Step-by-step guide in Bahasa Melayu: **[automation/PANDUAN.md](automation/PANDUAN.md)**. Afterwards, the SU ticks **Emel & kalendar dihantar automatik oleh Google Apps Script** in her planner so the banner only asks for WhatsApp.
 
 Rota CSV columns (planner export → Sheet):
 
@@ -132,11 +135,11 @@ The script finds columns by name (any order), still reads the older 14-column fi
 The owner's MQS requirement: after the duty, the officer confirms the checklist; if they do not, the Ketua Jabatan (head of department) is told.
 
 - **Personal link.** With the script deployed as a web app (Execute as: Me; Who has access: Anyone), every WhatsApp message, D−2 email and calendar invitation carries the officer's own link, `{web app URL}?t={ID}&k={code}`. The page (Bahasa Melayu, phone-first, accessible) shows the five checklist items; **Selesai / Done** is enabled once all five are ticked, from 12:00 on the duty day. Opening a link never records anything; only the button does, and pressing it twice changes nothing. A wrong or outdated code shows "Pautan ini tidak sah" without any name.
-- **Timing (defaults).** 6:15 pm: reminder email to the officer if not yet confirmed. 6:30 pm (the deadline): alert email to the Ketua Jabatan with the secretary in cc. A confirmation after the deadline is recorded as *Lewat* (late) and the Ketua Jabatan gets one follow-up email. A trigger checks every 10 minutes from 5 pm on weekdays; if all of an evening's checks failed, the next morning's run sends the alert once, marked "(semalam)".
+- **Timing (defaults).** 6:15 pm: reminder email to the officer if not yet confirmed. 6:30 pm (the deadline): alert email to the Ketua Jabatan with the secretary and the admin in cc. A confirmation after the deadline is recorded as *Lewat* (late) and the Ketua Jabatan gets one follow-up email. A trigger checks every 10 minutes from 5 pm on weekdays; if all of an evening's checks failed, the next morning's run sends the alert once, marked "(semalam)".
 - **No false alarms** for public holidays, no-duty days inside a weekly turn (`Hari tiada tugas`), weekends, or turns that began before the web app was set up.
 - **MQS evidence.** Each day is recorded in the Sheet tab **Pengesahan**: date, turn, officer, time confirmed, status (*Tepat masa*, *Lewat*, *Tidak disahkan*, *Tiada tugas*), checklist, reminder, alert and follow-up times.
 - **Without the web app**, the messages instead ask the officer to tell the secretary "SELESAI" by WhatsApp or email, and the planner shows a banner after the deadline with one-tap WhatsApp / email buttons to inform the Ketua Jabatan.
-- **Ketua Jabatan email**, in order: the menu **Last Man Out › Emel Ketua Jabatan** (e.g. an acting KJ), else the `Emel KJ` column, else the alert goes to the secretary alone with a note explaining why.
+- **Ketua Jabatan email**, in order: the menu **Last Man Out › Emel Ketua Jabatan** (e.g. an acting KJ), else the `Emel KJ` column, else the alert goes to the secretary (admin in cc) with a note explaining why.
 - **Security.** Codes are random (about 122 to 128 bits). Because "Anyone" can call the script's public functions from the page, the menu functions do nothing outside the Sheet, and only `confirmLmo` records a confirmation.
 
 Setup steps in Bahasa Melayu: [PANDUAN.md section 11](automation/PANDUAN.md#11-butang-selesai-pengesahan-selepas-tugas).
@@ -193,7 +196,7 @@ Everything, including team contacts and the rota, is stored in the browser's `lo
 
 This repository and website are **public**. Staff names, phone numbers and emails must never be committed here.
 
-- The members CSV and the rota CSV are kept only on the secretary's device and in her own private Google Sheet. `.gitignore` blocks the usual file names (`*ahli*.csv`, `giliran-lmo-*.csv`, `contacts-*.csv`), but always check before uploading files to GitHub.
+- The members CSV and the rota CSV are kept only on the secretary's device and in the private Google Sheet of the staff member who runs the script. `.gitignore` blocks the usual file names (`*ahli*.csv`, `giliran-lmo-*.csv`, `contacts-*.csv`), but always check before uploading files to GitHub.
 - Examples and tests in this repository use made-up names (`Pensyarah Ujian 1`), `example.com` emails and `6012000000x` numbers only.
 - Under the PDPA, it is good practice to tell staff that their work email and WhatsApp number are used for duty reminders, and to share the Sheet with no one who does not need it.
 
