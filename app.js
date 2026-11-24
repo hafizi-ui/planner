@@ -25,7 +25,8 @@
     chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5l1.3-3.8A8 8 0 1 1 8.4 18.6L4 19.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>',
     mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>',
     user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0M19 4v4M17 6h4"/></svg>',
-    cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>'
+    cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
   };
 
   // Link that opens Google Calendar with an all-day event already filled in (no login or server needed here)
@@ -48,7 +49,7 @@
       "&dates=" + stamp(e.start, rota.timeFrom) + "/" + stamp(e.start, rota.timeTo) +
       "&ctz=Asia%2FKuala_Lumpur" +
       (days > 1 ? "&recur=" + encodeURIComponent("RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;COUNT=" + days) : "") +
-      "&details=" + encodeURIComponent(T("lmoCalDetails", T("lmoList"))) +
+      "&details=" + encodeURIComponent(T("lmoCalDetails", T("lmoList"), lmoConfirm(e))) +
       (c && c.email ? "&add=" + encodeURIComponent(c.email) : "");
   }
 
@@ -208,18 +209,18 @@
       lmoSend: "Send", lmoMore: function (n) { return "+" + n + " more"; },
       lmoList: "1. All lights off\n2. Air-conditioning & fans off\n3. Main switch off / plugs unplugged\n4. Main door & windows locked\n5. Sign the form & record time out",
       lmoSignoff: "Secretary, JPPP Department, KPTM Kuantan",
-      lmoWaMsg: function (name, oneDay, period, from, list, signoff) {
+      lmoWaMsg: function (name, oneDay, period, from, list, signoff, confirm) {
         return "Hi " + name + ",\n\nReminder: you are the *Last Man Out officer* " + (oneDay ? "today" : "this week") + " (" + period + ").\n\n" +
-          "Before leaving (around " + from + "), please make sure:\n" + list + "\n\nThank you.\n" + signoff;
+          "Before leaving (around " + from + "), please make sure:\n" + list + "\n\n" + confirm + "\n\nThank you.\n" + signoff;
       },
       lmoMailSubject: function (period) { return "Last Man Out duty (MQS): " + period; },
-      lmoMailBody: function (name, period, from, to, list, signoff) {
+      lmoMailBody: function (name, period, from, to, list, signoff, confirm) {
         return "Hi " + name + ",\n\nYou are scheduled as the Last Man Out officer (MQS) for the JPPP Department on " + period + ".\n\n" +
-          "On each duty day, before leaving the office (around " + from + "–" + to + "):\n" + list + "\n\n" +
+          "On each duty day, before leaving the office (around " + from + "–" + to + "):\n" + list + "\n\n" + confirm + "\n\n" +
           "A Google Calendar invitation is also being sent. If you cannot do this duty (leave/course), please let me know as soon as possible so the turn can be swapped.\n\nThank you.\n" + signoff;
       },
       lmoCalText: function (n) { return "Last Man Out (MQS): " + n; },
-      lmoCalDetails: function (list) { return "Last Man Out officer duty before leaving the office:\n" + list + "\n\nLast Man Out duty roster, JPPP Department, KPTM Kuantan (MQS)."; },
+      lmoCalDetails: function (list, confirm) { return "Last Man Out officer duty before leaving the office:\n" + list + "\n\n" + confirm + "\n\nLast Man Out duty roster, JPPP Department, KPTM Kuantan (MQS)."; },
       pRosterTitle: "Weekly Last Man Out Duty Roster (MQS)", pRosterTitleDay: "Daily Last Man Out Duty Roster (MQS)",
       pDept: "Business Management & Accounting Department, KPTM Kuantan",
       pDutyTime: function (a, b) { return "Duty time: " + a + "–" + b + ", Monday to Friday"; },
@@ -231,6 +232,29 @@
       pDoor: "Door & windows locked", pTimeOut: "Time out",
       pCheckedBy: "Checked by: ______________________________     Date: ________________",
       pPrinted: function (d) { return "Printed on " + d; },
+      rWebUrl: "“Done” web app URL (optional)", rWebUrlHint: "Copy it from the Google Sheet: menu Last Man Out › Pautan Selesai",
+      rBadUrl: "That is not a web app link. It must look like https://script.google.com/macros/s/…/exec",
+      rDeadline: "Deadline to press Done",
+      rBadDeadline: function (min) { return "The deadline must be at or after " + min + " (the end of the duty, and not before 17:15)."; },
+      rDeadlineMoved: function (t) { return "The deadline to press Done moved to " + t + "."; },
+      rConfInSheet: "Confirmations are recorded in the Google Sheet, tab Pengesahan.",
+      rDayAria: function (d) { return d + ": Last Man Out status"; },
+      rDayNone: "Not yet", rDayOk: "Done ✓", rDayOffOpt: "No duty (holiday)", rDayOff: "No duty",
+      rDaySet: function (d, st) { return d + ": " + st; },
+      rDayKj: "HoD told", rKjPending: function (d, had) { return "Done not confirmed for " + d + " (deadline " + had + ")"; },
+      lmoConfirmLine: function (url, had) {
+        return url ? "After the duty each day, open this link and press Done before " + had + ":\n" + url + "\nIf it is not confirmed, the Head of Department will be informed."
+          : "After the duty each day, tell the Department Secretary SELESAI by WhatsApp or email before " + had + ". If it is not confirmed, the Head of Department will be informed.";
+      },
+      lmoKjSubject: function (pic, d) { return "Last Man Out " + d + ": " + pic + " has not confirmed the duty"; },
+      lmoKjMsg: function (kj, pic, d, had, signoff) {
+        return "Dear " + kj + ",\n\nFor your information, the Last Man Out officer on " + d + ", " + pic + ", has not confirmed the Last Man Out (MQS) checklist by " + had + ". I am following up.\n\nThank you.\n" + signoff;
+      },
+      lmoKjBanner: function (pic, d, had) { return "Last Man Out: " + pic + " has not confirmed Done for " + d + " (deadline " + had + ")."; },
+      kjMark: "Mark done", kjMarkAria: function (pic, d) { return "Mark done: " + pic + ", " + d; },
+      kjMarked: function (pic, d) { return "Marked done: " + pic + ", " + d; },
+      kjWa: "WhatsApp HoD", kjEmail: "Email HoD", kjAdd: "Add Head of Department contact",
+      kjTold: function (pic, d) { return "Head of Department told about " + pic + ", " + d; },
       q: {
         "do":       { title: "Do",       sub: "Urgent and important",         hint: "Finish these first.",       empty: "Nothing here yet. Urgent + important tasks land here." },
         "schedule": { title: "Schedule", sub: "Important, not urgent",        hint: "Give each one a date.",     empty: "Add what moves you forward: study, health, planning." },
@@ -408,18 +432,18 @@
       lmoSend: "Hantar", lmoMore: function (n) { return "+" + n + " lagi"; },
       lmoList: "1. Semua lampu ditutup\n2. Penyaman udara & kipas dimatikan\n3. Suis utama dimatikan / palam dicabut\n4. Pintu utama & tingkap dikunci\n5. Tandatangan borang & catat masa keluar",
       lmoSignoff: "Setiausaha Jabatan JPPP, KPTM Kuantan",
-      lmoWaMsg: function (name, oneDay, period, from, list, signoff) {
+      lmoWaMsg: function (name, oneDay, period, from, list, signoff, confirm) {
         return "Salam " + name + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + (oneDay ? "hari ini" : "minggu ini") + " (" + period + ").\n\n" +
-          "Sebelum pulang (sekitar " + from + "), sila pastikan:\n" + list + "\n\nTerima kasih.\n" + signoff;
+          "Sebelum pulang (sekitar " + from + "), sila pastikan:\n" + list + "\n\n" + confirm + "\n\nTerima kasih.\n" + signoff;
       },
       lmoMailSubject: function (period) { return "Giliran Last Man Out (MQS): " + period; },
-      lmoMailBody: function (name, period, from, to, list, signoff) {
+      lmoMailBody: function (name, period, from, to, list, signoff, confirm) {
         return "Salam " + name + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " + period + ".\n\n" +
-          "Setiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + list + "\n\n" +
+          "Setiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + list + "\n\n" + confirm + "\n\n" +
           "Jemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar.\n\nTerima kasih.\n" + signoff;
       },
       lmoCalText: function (n) { return "Last Man Out (MQS): " + n; },
-      lmoCalDetails: function (list) { return "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + list + "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS)."; },
+      lmoCalDetails: function (list, confirm) { return "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + list + "\n\n" + confirm + "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS)."; },
       pRosterTitle: "Jadual Bertugas Mingguan Last Man Out (MQS)", pRosterTitleDay: "Jadual Bertugas Harian Last Man Out (MQS)",
       pDept: "Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan",
       pDutyTime: function (a, b) { return "Masa bertugas: " + a + "–" + b + ", Isnin hingga Jumaat"; },
@@ -431,6 +455,29 @@
       pDoor: "Pintu & tingkap dikunci", pTimeOut: "Masa keluar",
       pCheckedBy: "Disemak oleh: ______________________________     Tarikh: ________________",
       pPrinted: function (d) { return "Dicetak pada " + d; },
+      rWebUrl: "URL web app Selesai (pilihan)", rWebUrlHint: "Salin dari Google Sheet: menu Last Man Out › Pautan Selesai",
+      rBadUrl: "Itu bukan pautan web app. Ia mesti seperti https://script.google.com/macros/s/…/exec",
+      rDeadline: "Had pengesahan Selesai",
+      rBadDeadline: function (min) { return "Had pengesahan mesti pada atau selepas " + min + " (masa tamat bertugas, dan tidak lebih awal daripada 17:15)."; },
+      rDeadlineMoved: function (t) { return "Had pengesahan Selesai dianjak ke " + t + "."; },
+      rConfInSheet: "Pengesahan direkod dalam Google Sheet, tab Pengesahan.",
+      rDayAria: function (d) { return d + ": status Last Man Out"; },
+      rDayNone: "Belum", rDayOk: "Selesai ✓", rDayOffOpt: "Tiada tugas (cuti)", rDayOff: "Tiada tugas",
+      rDaySet: function (d, st) { return d + ": " + st; },
+      rDayKj: "KJ dimaklumkan", rKjPending: function (d, had) { return "Belum sahkan Selesai untuk " + d + " (had " + had + ")"; },
+      lmoConfirmLine: function (url, had) {
+        return url ? "Selepas tugas selesai setiap hari bertugas, tekan pautan ini dan tanda Selesai sebelum " + had + ":\n" + url + "\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan."
+          : "Selepas tugas selesai setiap hari bertugas, maklumkan SELESAI kepada Setiausaha Jabatan melalui WhatsApp atau emel sebelum " + had + ". Jika tiada pengesahan, Ketua Jabatan akan dimaklumkan.";
+      },
+      lmoKjSubject: function (pic, d) { return "Last Man Out " + d + ": " + pic + " belum mengesahkan tugas"; },
+      lmoKjMsg: function (kj, pic, d, had, signoff) {
+        return "Salam " + kj + ",\n\nUntuk makluman, Pegawai Last Man Out pada " + d + ", " + pic + ", belum mengesahkan senarai semak Last Man Out (MQS) sehingga " + had + ". Saya sedang membuat susulan.\n\nTerima kasih.\n" + signoff;
+      },
+      lmoKjBanner: function (pic, d, had) { return "Last Man Out: " + pic + " belum sahkan Selesai untuk " + d + " (had " + had + ")."; },
+      kjMark: "Tanda Selesai", kjMarkAria: function (pic, d) { return "Tanda Selesai: " + pic + ", " + d; },
+      kjMarked: function (pic, d) { return "Ditanda Selesai: " + pic + ", " + d; },
+      kjWa: "WhatsApp KJ", kjEmail: "Emel KJ", kjAdd: "Tambah kenalan Ketua Jabatan",
+      kjTold: function (pic, d) { return "Ketua Jabatan dimaklumkan tentang " + pic + ", " + d; },
       q: {
         "do":       { title: "Buat",      sub: "Segera dan penting",              hint: "Siapkan ini dahulu.",                 empty: "Belum ada apa-apa. Tugasan segera + penting masuk di sini." },
         "schedule": { title: "Jadualkan", sub: "Penting, tidak segera",           hint: "Tetapkan tarikh untuk setiap satu.",  empty: "Tambah perkara yang membawa anda ke hadapan: belajar, kesihatan, perancangan." },
@@ -973,6 +1020,7 @@
     renderReviewBanner();
     if (typeof renderRemindBanner === "function") renderRemindBanner();
     renderLmoBanner();
+    renderKjBanner();
   }
 
   function flash(q) {
@@ -1547,6 +1595,7 @@
     var c = prefill && prefill.id ? contactById(prefill.id) : null;
     if (c) fillContactForm(c);
     else if (prefill && prefill.name) f.elements.name.value = prefill.name;
+    if (!c && prefill && prefill.role) f.elements.role.value = prefill.role;   // e.g. adding the Head of Department
     renderContacts();
     var dlg = $("contactsDlg");
     if (!dlg.open) { if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", ""); }
@@ -1634,7 +1683,12 @@
     render();
     // Opened from the rota dialog: refresh it and go back to the button that opened contacts
     if ($("rotaDlg").open) { refreshRota(lastFocus); return; }
-    if (lastFocus && lastFocus.focus && lastFocus.isConnected) lastFocus.focus();
+    if (lastFocus && lastFocus.focus && lastFocus.isConnected) { lastFocus.focus(); return; }
+    // The opener was re-drawn (e.g. a button in the Selesai banner): go back to its replacement
+    var k = lastFocus && lastFocus.getAttribute && lastFocus.getAttribute("data-k");
+    var el = k ? document.querySelector('.app [data-k="' + cssEscape(k) + '"]') : null;
+    if (!el && k && k.indexOf("kj-") === 0) el = $("kjActions").querySelector("a, button");   // e.g. KJ contact just added
+    if (el && el.offsetParent !== null) el.focus();
   });
   $("contactsDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeContacts(); });
   $("contactsBtn").addEventListener("click", function () { openContacts(); });
@@ -2010,35 +2064,91 @@
      ================================================================ */
   var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
   var CHS = ["email", "cal", "wa"];
+  // Shared contracts with automation/LastManOut.gs (see ADDENDUM "Selesai"): personal link {webUrl}?t={ID}&k={code}
+  var WEBAPP_RE = /^https:\/\/script\.google\.com\/(macros|a\/macros\/[a-z0-9.-]+)\/s\/[A-Za-z0-9_-]+\/exec$/;
+  var CODE_RE = /^[A-Za-z0-9_-]{16,64}$/;
+  var DEADLINE_MIN = "17:15";
   var GUIDE_URL = "https://github.com/hafizi-ui/planner/blob/main/automation/PANDUAN.md";
   // Shared contract with automation/LastManOut.gs (Google Sheet tab "Giliran"): keep these exact
   var ROTA_CSV_HEAD = ["ID", "Mula", "Tamat", "Masa mula", "Masa tamat", "Nama", "Emel", "No WhatsApp", "Jawatan", "Program", "Cuti",
-    "Emel dihantar", "Kalendar dihantar", "WhatsApp dihantar"];
+    "Emel dihantar", "Kalendar dihantar", "WhatsApp dihantar", "Had pengesahan", "Kod pengesahan", "Emel KJ", "Hari tiada tugas"];
 
   function sortEntries(list) { list.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }); }
+  // Secret part of the personal "Selesai" link: 16 random bytes, base64url (22 characters)
+  function newCode() {
+    var b = new Uint8Array(16), s = "", c = window.crypto || window.msCrypto;
+    if (c && c.getRandomValues) c.getRandomValues(b);
+    else for (var j = 0; j < 16; j++) b[j] = Math.floor(Math.random() * 256);
+    for (var i = 0; i < 16; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function maxTime(a, b) { return a > b ? a : b; }
+  function addMinutes(hhmm, n) {
+    var m = Math.min(23 * 60 + 59, Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3)) + n);
+    return pad2(Math.floor(m / 60)) + ":" + pad2(m % 60);
+  }
+  // The deadline to press "Selesai" is never before the end of the duty, nor before 17:15
+  function minDeadline(timeTo) { return maxTime(timeTo, DEADLINE_MIN); }
+  // Per-day record: { ok: ts (SU ticked Selesai), kj: ts (Head of Department told), off: true (no duty that day) }
+  function normDays(days, e) {
+    var out = {};
+    if (!days || typeof days !== "object") return out;
+    Object.keys(days).forEach(function (d) {
+      var v = days[d];
+      if (!ISO_DATE.test(d) || d < e.start || d > e.end || !v || typeof v !== "object") return;
+      var x = {};
+      if (num(v.ok)) x.ok = v.ok;
+      if (num(v.kj)) x.kj = v.kj;
+      if (v.off === true) x.off = true;
+      if (Object.keys(x).length) out[d] = x;
+    });
+    return out;
+  }
+  var rotaCodesFilled = false;
   function normRota(r) {
     r = r && typeof r === "object" ? r : {};
-    var out = { v: 1, mode: r.mode === "day" ? "day" : "week", order: r.order === "az" ? "az" : "prog",
+    var hasOld = Array.isArray(r.entries) && r.entries.length > 0;
+    var timeFrom = TIME_RE.test(r.timeFrom) ? r.timeFrom : "18:00", timeTo = TIME_RE.test(r.timeTo) ? r.timeTo : "18:15";
+    // Version 1 used 16:45-17:15 as the default duty time; the duty is now at 18:00
+    if (r.v !== 2 && timeFrom === "16:45" && timeTo === "17:15") { timeFrom = "18:00"; timeTo = "18:15"; }
+    var low = minDeadline(timeTo);
+    var out = { v: 2, mode: r.mode === "day" ? "day" : "week", order: r.order === "az" ? "az" : "prog",
       start: typeof r.start === "string" && ISO_DATE.test(r.start) ? r.start : "",
-      timeFrom: TIME_RE.test(r.timeFrom) ? r.timeFrom : "16:45", timeTo: TIME_RE.test(r.timeTo) ? r.timeTo : "17:15",
+      timeFrom: timeFrom, timeTo: timeTo,
+      deadline: TIME_RE.test(r.deadline) && r.deadline >= low ? r.deadline : maxTime("18:30", low),
+      webUrl: typeof r.webUrl === "string" && WEBAPP_RE.test(r.webUrl.trim()) ? r.webUrl.trim() : "",
+      // Days before this date are never reported to the Head of Department (set when an older rota is upgraded)
+      confirmFrom: typeof r.confirmFrom === "string" && ISO_DATE.test(r.confirmFrom) ? r.confirmFrom : (r.v !== 2 && hasOld ? todayISO() : ""),
       gas: r.gas === true, changedAt: num(r.changedAt), exportedAt: num(r.exportedAt), entries: [] };
-    var seen = Object.create(null);
+    var seen = Object.create(null), filled = false;
     (Array.isArray(r.entries) ? r.entries : []).forEach(function (e) {
       if (!e || typeof e.start !== "string" || !ISO_DATE.test(e.start)) return;
       var id = "lmo-" + e.start;   // periods never overlap, so the start date is a stable id
       if (seen[id]) return;
       seen[id] = true;
       var s = e.sent && typeof e.sent === "object" ? e.sent : {};
-      out.entries.push({ id: id, start: e.start,
+      var x = { id: id, start: e.start,
         end: typeof e.end === "string" && ISO_DATE.test(e.end) && e.end >= e.start ? e.end : e.start,
         cid: typeof e.cid === "string" ? e.cid.slice(0, 40) : "",
         name: typeof e.name === "string" ? e.name.trim().slice(0, 60) : "",
-        off: e.off === true, sent: { email: num(s.email), cal: num(s.cal), wa: num(s.wa) } });
+        off: e.off === true, sent: { email: num(s.email), cal: num(s.cal), wa: num(s.wa) },
+        code: typeof e.code === "string" && CODE_RE.test(e.code) ? e.code : "" };
+      if (!x.code) { x.code = newCode(); filled = true; }
+      x.days = normDays(e.days, x);
+      out.entries.push(x);
     });
+    if (filled) out.changedAt = Date.now();   // the Sheet needs the new codes: show "export again"
+    rotaCodesFilled = filled;
     sortEntries(out.entries);
     return out;
   }
-  function loadRota() { rota = normRota(readJSON(ROTA_KEY, null)); return rota; }
+  function loadRota() {
+    var raw = readJSON(ROTA_KEY, null);
+    rota = normRota(raw);
+    // Keep codes (and the upgrade) stable across reloads: save at once when anything was filled in
+    if (raw && (rotaCodesFilled || raw.v !== 2)) writeJSON(ROTA_KEY, rota);
+    return rota;
+  }
   function saveRota(changed) {
     if (changed) rota.changedAt = Date.now();
     sortEntries(rota.entries);
@@ -2053,7 +2163,17 @@
     rota.entries.forEach(function (e) { byId[e.id] = e; });
     inc.entries.forEach(function (x) {
       var e = byId[x.id];
-      if (e) { CHS.forEach(function (ch) { e.sent[ch] = Math.max(e.sent[ch], x.sent[ch]); }); return; }
+      if (e) {   // this device's person and code win; sent times and per-day marks are combined
+        CHS.forEach(function (ch) { e.sent[ch] = Math.max(e.sent[ch], x.sent[ch]); });
+        Object.keys(x.days).forEach(function (d) {
+          var a = e.days[d] || {}, b = x.days[d], m = {};
+          if (Math.max(num(a.ok), num(b.ok))) m.ok = Math.max(num(a.ok), num(b.ok));
+          if (Math.max(num(a.kj), num(b.kj))) m.kj = Math.max(num(a.kj), num(b.kj));
+          if (a.off || b.off) m.off = true;
+          e.days[d] = m;
+        });
+        return;
+      }
       if (!rota.entries.some(function (y) { return overlaps(x, y); })) { rota.entries.push(x); added++; }
     });
     saveRota(added > 0);
@@ -2090,9 +2210,22 @@
   function resetSent(e) { e.sent = { email: 0, cal: 0, wa: 0 }; }
   // Locked turns (already notified, or starting within 2 days) never move when the rota is rebuilt or shifted
   function isLocked(e, today) { return anySent(e) || e.start <= addDays(today || todayISO(), 2); }
-  function newEntry(p, c) {
-    return { id: "lmo-" + p.start, start: p.start, end: p.end, cid: c ? c.id : "", name: c ? c.name : "", off: false, sent: { email: 0, cal: 0, wa: 0 } };
+  // Set the person on a turn. A different person gets a new code, so a link sent to the old person stops working.
+  function assignPerson(e, cid, name) {
+    if (e.code && e.cid === cid && e.name === name) return;
+    e.cid = cid; e.name = name; e.code = newCode();
   }
+  function newEntry(p, c) {
+    var e = { id: "lmo-" + p.start, start: p.start, end: p.end, cid: "", name: "", off: false, sent: { email: 0, cal: 0, wa: 0 }, code: "", days: {} };
+    assignPerson(e, c ? c.id : "", c ? c.name : "");
+    return e;
+  }
+  function kjContact() {
+    for (var i = 0; i < contacts.length; i++) if (KJ_RE.test(contacts[i].role || "")) return contacts[i];
+    return null;
+  }
+  function lmoLink(e) { return rota.webUrl ? rota.webUrl + "?t=" + e.id + "&k=" + e.code : ""; }
+  function lmoConfirm(e) { return T("lmoConfirmLine", lmoLink(e), rota.deadline); }
   function entryOn(iso) {
     for (var i = 0; i < rota.entries.length; i++) { var e = rota.entries[i]; if (e.start <= iso && iso <= e.end) return e; }
     return null;
@@ -2170,10 +2303,10 @@
     if (f) {
       if (!window.confirm(T("rSwapConfirm", c.name, lmoRange(e), oldName, lmoRange(f)))) return null;
       if (anySent(f)) told.push(c.name);
-      f.cid = oldC ? oldC.id : ""; f.name = oldName; resetSent(f);
+      assignPerson(f, oldC ? oldC.id : "", oldName); resetSent(f);
     }
     if (anySent(e) && oldName) told.unshift(oldName);
-    e.cid = c.id; e.name = c.name; resetSent(e);
+    assignPerson(e, c.id, c.name); resetSent(e);
     saveRota(true);
     return { swapped: !!f, told: told };
   }
@@ -2187,19 +2320,19 @@
     if (on) {
       if (anySent(e) && personName(e)) told.push(personName(e));
       var carry = { cid: e.cid, name: e.name };
-      e.off = true; e.cid = ""; e.name = "";
+      e.off = true; assignPerson(e, "", "");
       if (carry.cid || carry.name) {
-        later.forEach(function (x) { var t = { cid: x.cid, name: x.name }; x.cid = carry.cid; x.name = carry.name; carry = t; });
+        later.forEach(function (x) { var t = { cid: x.cid, name: x.name }; assignPerson(x, carry.cid, carry.name); carry = t; });
         var last = rota.entries[rota.entries.length - 1];
         var ne = newEntry(makePeriods(addDays(last.end, 1), 1, rota.mode)[0], null);
-        ne.cid = carry.cid; ne.name = carry.name;
+        assignPerson(ne, carry.cid, carry.name);
         rota.entries.push(ne);
       }
     } else {
       e.off = false;
       var chain = [e].concat(later);
       if (chain.length > 1) {
-        for (var i = 0; i < chain.length - 1; i++) { chain[i].cid = chain[i + 1].cid; chain[i].name = chain[i + 1].name; }
+        for (var i = 0; i < chain.length - 1; i++) assignPerson(chain[i], chain[i + 1].cid, chain[i + 1].name);
         var gone = chain[chain.length - 1];
         rota.entries = rota.entries.filter(function (x) { return x !== gone; });
       }
@@ -2223,6 +2356,38 @@
     });
     return out;
   }
+  // "Selesai" not confirmed: a working day in the last 7 days of a turn with a person, not ticked Selesai,
+  // Head of Department not yet told, not a no-duty day, and either before today or today after the deadline.
+  // Only used when there is no web app (the Apps Script alerts the Head of Department itself when there is).
+  function kjDue(now) {
+    if (!rota || rota.webUrl) return [];
+    now = now || Date.now();
+    var today = todayISO(now), t = new Date(now), hhmm = pad2(t.getHours()) + ":" + pad2(t.getMinutes());
+    var from = maxTime(addDays(today, -7), rota.confirmFrom || ""), out = [];
+    rota.entries.forEach(function (e) {
+      if (e.off || !(e.cid || e.name) || e.end < from || e.start > today) return;
+      for (var d = maxTime(e.start, from); d <= e.end && d <= today; d = addDays(d, 1)) {
+        var st = e.days[d] || {};
+        if (!isWorkday(d) || st.ok || st.kj || st.off || (d === today && hhmm < rota.deadline)) continue;
+        out.push({ e: e, d: d });
+      }
+    });
+    return out.sort(function (a, b) { return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+  }
+  function setDay(e, d, field, val) {
+    var st = e.days[d] || {};
+    if (val) st[field] = val; else delete st[field];
+    if (Object.keys(st).length) e.days[d] = st; else delete e.days[d];
+  }
+  function dayLabel(d) { var p = parseISO(d); return T("days")[p.getDay()] + " " + p.getDate() + "/" + (p.getMonth() + 1); }
+  function dayLong(d) { return shortDate(d, { weekday: "long", day: "numeric", month: "long" }); }
+  function dmy(d) { var p = parseISO(d); return p.getDate() + "/" + (p.getMonth() + 1) + "/" + p.getFullYear(); }
+  // Working days of turn e from 7 days ago up to today (for the per-day status controls)
+  function recentDays(e, today) {
+    var out = [], from = addDays(today, -7);
+    for (var d = maxTime(e.start, from); d <= e.end && d <= today; d = addDays(d, 1)) if (isWorkday(d)) out.push(d);
+    return out;
+  }
   function chName(ch, lower) {
     if (ch === "wa") return T("chWa");
     var s = T(ch === "email" ? "chEmail" : "chCal");
@@ -2238,22 +2403,24 @@
     return shortDate(e.start, { day: "numeric", month: "short" }) + " – " + shortDate(e.end, y);
   }
   function lmoWaMsg(e, c) {
-    return T("lmoWaMsg", c ? c.name : e.name, e.start === e.end, lmoPeriodText(e), rota.timeFrom, T("lmoList"), T("lmoSignoff"));
+    return T("lmoWaMsg", c ? c.name : e.name, e.start === e.end, lmoPeriodText(e), rota.timeFrom, T("lmoList"), T("lmoSignoff"), lmoConfirm(e));
   }
   function lmoMail(e, c) {
     var period = lmoPeriodText(e);
     return { subject: T("lmoMailSubject", period),
-      body: T("lmoMailBody", c ? c.name : e.name, period, rota.timeFrom, rota.timeTo, T("lmoList"), T("lmoSignoff")) };
+      body: T("lmoMailBody", c ? c.name : e.name, period, rota.timeFrom, rota.timeTo, T("lmoList"), T("lmoSignoff"), lmoConfirm(e)) };
   }
 
   /* ---------- CSV for the Google Sheet (Apps Script) ---------- */
   function rotaCsv() {
-    var lines = [ROTA_CSV_HEAD.join(",")];
+    var lines = [ROTA_CSV_HEAD.join(",")], kj = kjContact(), kjEmail = kj && kj.email ? kj.email : "";
     rota.entries.forEach(function (e) {
-      var c = e.off ? null : entryContact(e);
-      lines.push([e.id, e.start, e.end, rota.timeFrom, rota.timeTo, e.off ? "" : personName(e),
+      var c = e.off ? null : entryContact(e), who = e.off ? "" : personName(e);
+      var noDuty = Object.keys(e.days).filter(function (d) { return e.days[d].off; }).sort().join(";");
+      lines.push([e.id, e.start, e.end, rota.timeFrom, rota.timeTo, who,
         c ? c.email : "", c ? c.phone : "", c ? c.role : "", c ? c.prog : "", e.off ? "Ya" : "",
-        stampText(e.sent.email), stampText(e.sent.cal), stampText(e.sent.wa)].map(csvCell).join(","));
+        stampText(e.sent.email), stampText(e.sent.cal), stampText(e.sent.wa),
+        rota.deadline, who ? e.code : "", kjEmail, noDuty].map(csvCell).join(","));
     });
     return "﻿" + lines.join("\n") + "\n";
   }
@@ -2277,6 +2444,52 @@
       return personName(d.e) + " (" + d.chs.map(function (x) { return chName(x.ch, true); }).join(", ") + ")";
     }).join(", ");
     $("lmoText").textContent = T("lmoBanner", parts + (due.length > 3 ? " " + T("lmoMore", due.length - 3) : ""));
+  }
+  // Buttons for one unconfirmed day: tick Selesai, or tell the Head of Department by WhatsApp / email
+  function kjButtons(p, done) {
+    var e = p.e, d = p.d, pic = personName(e), kj = kjContact(), key = "kj-" + e.id + "-" + d, btns = [];
+    btns.push(h("button", { type: "button", class: "cal-link kj-ok", "data-k": key + "-ok", "aria-label": T("kjMarkAria", pic, dayLong(d)),
+      html: ICONS.check + "<span>" + escapeHtml(T("kjMark")) + "</span>", onclick: function () {
+        setDay(e, d, "ok", Date.now());
+        saveRota();
+        done(T("kjMarked", pic, dayLong(d)));
+      } }));
+    if (!kj) {
+      btns.push(h("button", { class: "cal-link add-contact", type: "button", "data-k": key + "-kjadd",
+        html: ICONS.user + "<span>" + escapeHtml(T("kjAdd")) + "</span>", onclick: function () { openContacts({ role: T("cRoles")[0] }); } }));
+      return btns;
+    }
+    var subject = T("lmoKjSubject", pic, dmy(d)), msg = T("lmoKjMsg", kj.name, pic, longDate(d), rota.deadline, T("lmoSignoff"));
+    function told() { setDay(e, d, "kj", Date.now()); saveRota(); setTimeout(function () { done(T("kjTold", pic, dayLong(d))); }, 0); }
+    var wa = kj.phone ? waLink(kj.phone, msg, T("kjWa"), T("waAria", kj.name, subject), told) : contactFieldButton(kj, kj.name, "phone");
+    var em = kj.email ? mailLink(kj.email, subject, msg, T("kjEmail"), T("mailAria", kj.name, subject), told) : contactFieldButton(kj, kj.name, "email");
+    wa.setAttribute("data-k", key + "-wa"); em.setAttribute("data-k", key + "-email");
+    return btns.concat([wa, em]);
+  }
+  var kjSig = "";
+  function renderKjBanner() {
+    var b = $("kjBanner");
+    if (!b || !rota) return false;
+    var due = kjDue(), box = $("kjActions"), a = document.activeElement;
+    var keepK = a && b.contains(a) ? a.getAttribute("data-k") : null;
+    var sig = due.map(function (p) { return p.e.id + p.d; }).join();
+    var changed = sig !== kjSig;
+    kjSig = sig;
+    b.hidden = !due.length;
+    box.textContent = "";
+    if (!due.length) return changed;
+    var first = due[0];
+    $("kjText").textContent = T("lmoKjBanner", personName(first.e), dayLong(first.d), rota.deadline) + (due.length > 1 ? " " + T("lmoMore", due.length - 1) : "");
+    kjButtons(first, afterKjBanner).forEach(function (x) { box.appendChild(x); });
+    if (keepK) { var el = box.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el) el.focus(); }
+    return changed;
+  }
+  function afterKjBanner(msg) {
+    renderKjBanner();
+    if ($("rotaDlg").open) renderRota();
+    var next = [$("kjActions").querySelector("button, a"), $("lmoOpen"), input].filter(function (x) { return x && x.offsetParent !== null; })[0];
+    if (next && document.activeElement === document.body) next.focus();
+    announce(msg);
   }
 
   /* ---------- Rota dialog ---------- */
@@ -2355,18 +2568,44 @@
     order.addEventListener("change", function () { rota.order = order.value === "az" ? "az" : "prog"; saveRota(); });
     var startIn = h("input", { type: "date", value: rota.start || defaultStart(), "data-k": "start" });
     startIn.addEventListener("change", function () { if (ISO_DATE.test(startIn.value)) { rota.start = startIn.value; saveRota(); } });
+    function tell(msg) { announce(msg); showToast(msg, false); }
     function timeInput(key) {
       var t = h("input", { type: "time", value: rota[key], "data-k": key });
       t.addEventListener("change", function () {
-        var v = t.value, ok = TIME_RE.test(v) && (key === "timeFrom" ? v < rota.timeTo : v > rota.timeFrom);
-        if (ok) { rota[key] = v; saveRota(true); return; }
-        t.value = rota[key];
-        if (TIME_RE.test(v)) { announce(T("rBadTime")); showToast(T("rBadTime"), false); }
+        var v = t.value, ok = TIME_RE.test(v);
+        if (key === "deadline") ok = ok && v >= minDeadline(rota.timeTo);
+        else ok = ok && (key === "timeFrom" ? v < rota.timeTo : v > rota.timeFrom);
+        if (!ok) {
+          t.value = rota[key];
+          if (TIME_RE.test(v)) tell(key === "deadline" ? T("rBadDeadline", minDeadline(rota.timeTo)) : T("rBadTime"));
+          return;
+        }
+        rota[key] = v;
+        // A later end of duty pushes the deadline along (15 minutes after the end)
+        var moved = key === "timeTo" && rota.deadline < minDeadline(v);
+        if (moved) rota.deadline = maxTime(addMinutes(v, 15), DEADLINE_MIN);
+        saveRota(true);
+        if (moved) { afterRotaChange(); tell(T("rDeadlineMoved", rota.deadline)); }
+        else renderLmoBanner(), renderKjBanner();
       });
       return t;
     }
+    var urlIn = h("input", { type: "url", value: rota.webUrl, "data-k": "webUrl", inputmode: "url", autocomplete: "off", spellcheck: "false",
+      placeholder: "https://script.google.com/macros/s/\u2026/exec", "aria-describedby": "rWebUrlHint" });
+    urlIn.addEventListener("change", function () {
+      var v = urlIn.value.trim();
+      if (v && !WEBAPP_RE.test(v)) { urlIn.value = rota.webUrl; tell(T("rBadUrl")); return; }
+      if (v === rota.webUrl) return;
+      rota.webUrl = v;
+      saveRota(true);   // messages now carry the personal link: export the CSV (with the codes) to the Sheet again
+      afterRotaChange();
+      renderKjBanner();
+    });
     det.appendChild(h("div", { class: "r-grid" }, [modes, rotaField(T("rOrder"), order), rotaField(T("rStart"), startIn),
-      rotaField(T("rTimeFrom"), timeInput("timeFrom")), rotaField(T("rTimeTo"), timeInput("timeTo"))]));
+      rotaField(T("rTimeFrom"), timeInput("timeFrom")), rotaField(T("rTimeTo"), timeInput("timeTo")),
+      rotaField(T("rDeadline"), timeInput("deadline"))]));
+    det.appendChild(h("label", { class: "r-field r-url" }, [h("span", { text: T("rWebUrl") }), urlIn,
+      h("small", { class: "r-hint", id: "rWebUrlHint", text: T("rWebUrlHint") })]));
 
     // Members, grouped by programme (no programme first)
     function countText() { return T("rMembers", contacts.filter(function (c) { return c.rota; }).length, contacts.length); }
@@ -2458,13 +2697,57 @@
       ]),
       sel,
       h("div", { class: "r-chips" }, chips),
-      h("label", { class: "r-off" }, [off, h("span", { text: T("rOff") })])
+      h("label", { class: "r-off" }, [off, h("span", { text: T("rOff") })]),
+      dayControls(e, today)
     ]);
+  }
+  // One control per working day of the last 7 days: Belum / Selesai / Tiada tugas (planner only),
+  // or just "Tiada tugas" when the Google Sheet records the confirmations
+  function dayControls(e, today) {
+    var days = e.off || !(e.cid || e.name) ? [] : recentDays(e, today);
+    if (!days.length) return null;
+    var who = personName(e), now = new Date(), hhmm = pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+    var box = h("div", { class: "r-days " + (rota.webUrl ? "r-days-tick" : "r-days-sel") }, days.map(function (d) {
+      var st = e.days[d] || {}, lab = dayLabel(d), key = "d-" + e.id + "-" + d;
+      if (rota.webUrl) {
+        var cb = h("input", { type: "checkbox", checked: !!st.off, "data-k": key });
+        cb.addEventListener("change", function () {
+          setDay(e, d, "off", cb.checked);
+          saveRota(true);   // "Hari tiada tugas" goes to the Sheet
+          afterRotaChange(T("rDaySet", lab, cb.checked ? T("rDayOff") : T("rDayNone")));
+          renderKjBanner();
+        });
+        return h("label", { class: "r-day" + (st.off ? " is-off" : "") }, [cb, h("span", { text: lab + ": " + T("rDayOff") })]);
+      }
+      var cur = st.off ? "off" : st.ok ? "ok" : "";
+      var pending = !cur && (d < today || hhmm >= rota.deadline);
+      var sel = h("select", { "data-k": key, "aria-label": T("rDayAria", lab) }, [
+        h("option", { value: "", text: T("rDayNone"), selected: cur === "" }),
+        h("option", { value: "ok", text: T("rDayOk"), selected: cur === "ok" }),
+        h("option", { value: "off", text: T("rDayOffOpt"), selected: cur === "off" })
+      ]);
+      sel.addEventListener("change", function () {
+        var wasOff = !!(e.days[d] && e.days[d].off), v = sel.value;
+        setDay(e, d, "ok", v === "ok" ? Date.now() : 0);
+        setDay(e, d, "off", v === "off");
+        saveRota(wasOff !== (v === "off"));
+        afterRotaChange(T("rDaySet", lab, sel.options[sel.selectedIndex].text));
+        renderKjBanner();
+      });
+      return h("label", { class: "r-day" + (cur === "ok" ? " is-ok" : cur === "off" ? " is-off" : pending ? " is-pending" : "") }, [
+        h("span", { text: lab }), sel, st.kj ? h("small", { class: "r-day-kj", text: T("rDayKj") }) : null]);
+    }));
+    if (rota.webUrl) box.appendChild(h("p", { class: "r-days-note", text: T("rConfInSheet") }));
+    return box;
   }
 
   function renderRota() {
     var root = $("rotaBody"), today = todayISO();
     var a = document.activeElement, keepK = a && root.contains(a) ? a.getAttribute("data-k") : null;
+    // Keep the open/closed state of the settings as shown now ("toggle" events arrive a moment later)
+    var box = root.querySelector(".r-box"), mbox = root.querySelector(".r-members");
+    if (box && rotaOpen.settings !== null) rotaOpen.settings = box.open;   // null = just opened: decide afresh
+    if (mbox) rotaOpen.members = mbox.open;
     root.textContent = "";
     var cur = currentEntry(today), nxt = cur ? null : nextEntry(today);
     $("rotaNow").textContent = cur ? T("rNow", personName(cur)) : nxt ? T("rNext", personName(nxt), lmoRange(nxt)) : T("rNoneYet");
@@ -2473,16 +2756,25 @@
     // 1. Notices due now
     root.appendChild(h("h3", { class: "ins-h", text: T("rDue") }));
     if (rota.gas) root.appendChild(h("p", { class: "c-note", text: T("rGasOn") }));
-    var due = lmoDue(today);
-    if (!due.length) root.appendChild(h("p", { class: "m-clear", text: T("rNothingDue") }));
-    else root.appendChild(h("ul", { class: "m-list" }, due.map(function (d) { return dueRow(d); })));
+    var due = lmoDue(today), pend = kjDue();
+    if (!due.length && !pend.length) root.appendChild(h("p", { class: "m-clear", text: T("rNothingDue") }));
+    else root.appendChild(h("ul", { class: "m-list" }, due.map(function (d) { return dueRow(d); }).concat(pend.map(function (p) {
+      return h("li", { class: "m-row is-late" }, [
+        h("div", { class: "m-main" }, [
+          h("p", { class: "m-task", text: personName(p.e) }),
+          h("p", { class: "m-sub" }, [h("span", { class: "badge badge-overdue", text: T("rLate") }),
+            document.createTextNode(" " + T("rKjPending", dayLong(p.d), rota.deadline))])
+        ]),
+        h("div", { class: "send-btns" }, kjButtons(p, function (msg) { afterRotaChange(msg); renderKjBanner(); }))
+      ]);
+    }))));
 
     // 2. Settings
     root.appendChild(rotaSettings(members));
 
     // 3. Print and export
     root.appendChild(h("h3", { class: "ins-h", text: T("rTools") }));
-    if (rota.gas && has && rota.changedAt > rota.exportedAt) root.appendChild(h("p", { class: "r-warn", text: T("rReexport") }));
+    if ((rota.gas || rota.webUrl) && has && rota.changedAt > rota.exportedAt) root.appendChild(h("p", { class: "r-warn", text: T("rReexport") }));
     root.appendChild(h("div", { class: "r-actions r-tools" }, [
       h("button", { type: "button", class: "ghost-btn", "data-k": "csv", text: T("rExportCsv"), disabled: !has, onclick: exportRotaCsv }),
       h("button", { type: "button", class: "ghost-btn", "data-k": "print", text: T("rPrintRoster"), disabled: !has, onclick: function () { printRota("roster"); } }),
@@ -2493,8 +2785,10 @@
     // 4. Turns: upcoming first; past ones on request
     if (has) {
       root.appendChild(h("h3", { class: "ins-h", text: T("rList") }));
-      var past = rota.entries.filter(function (e) { return e.end < today; });
-      var up = rota.entries.filter(function (e) { return e.end >= today; });
+      // Turns that ended in the last 7 days stay visible, for their per-day status controls
+      var recent = addDays(today, -7);
+      var past = rota.entries.filter(function (e) { return e.end < recent; });
+      var up = rota.entries.filter(function (e) { return e.end >= recent; });
       if (past.length) root.appendChild(h("button", { type: "button", class: "link-btn r-past", "data-k": "past", "aria-expanded": String(rotaShowPast),
         text: rotaShowPast ? T("rHidePast") : T("rShowPast", past.length), onclick: function () { rotaShowPast = !rotaShowPast; renderRota(); } }));
       root.appendChild(h("ol", { class: "r-list" }, (rotaShowPast ? past.concat(up) : up).map(function (e) { return entryRow(e, today, members); })));
@@ -2663,6 +2957,9 @@
 
   var lastDay = todayISO();
   setInterval(function () {
+    // Every minute: Last Man Out notices, and the "Selesai not confirmed" banner once the deadline passes
+    renderLmoBanner();
+    if (renderKjBanner() && $("rotaDlg").open) renderRota();
     var now = todayISO();
     if (now === lastDay) return;
     lastDay = now;
