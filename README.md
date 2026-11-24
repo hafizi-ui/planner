@@ -84,7 +84,7 @@ Nama,No. WhatsApp,Emel,Jawatan,Program,Giliran LMO
 
 Keep this file on your own computer. It must never be uploaded to this repository (see [Privacy note for staff data](#privacy-note-for-staff-data)).
 
-**2. Build the rota.** Choose weekly (Monday to Friday, the default) or daily turns, the order (by programme, or A to Z), the start date and the duty time (default 4:45 to 5:15 pm), tick who is in the rota, and press **Jana jadual**. **Sambung satu pusingan** adds one more full cycle.
+**2. Build the rota.** Choose weekly (Monday to Friday, the default) or daily turns, the order (by programme, or A to Z), the start date and the duty time (default 6:00 to 6:15 pm), tick who is in the rota, and press **Jana jadual**. **Sambung satu pusingan** adds one more full cycle.
 
 **3. Change it without anyone losing a turn.**
 
@@ -98,6 +98,7 @@ Keep this file on your own computer. It must never be uploaded to this repositor
 |---|---|---|
 | 2 days before the turn (a Monday turn is notified on Saturday) | Email + Google Calendar invitation (duty time every working day of the turn) | Duty officer |
 | First day of the turn | WhatsApp reminder with the checklist | Duty officer |
+| Every duty day, after the duty | Press **Selesai** (Done) to confirm the checklist, by the confirmation deadline (default 6:30 pm) | Duty officer |
 
 The planner has no server, so a banner (*"Last Man Out: notis untuk ... perlu dihantar"*) tells you when a notice is due, with one-tap Email / Calendar / WhatsApp buttons. It remembers what was sent and flags late notices. To send the email and calendar invitation fully automatically, use the Google Apps Script below.
 
@@ -116,10 +117,29 @@ Setup: export **Eksport CSV untuk Google Sheet** from the planner, import it int
 Rota CSV columns (planner export → Sheet):
 
 ```
-ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar
+ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar,Had pengesahan,Kod pengesahan,Emel KJ,Hari tiada tugas
 ```
 
-The script finds columns by name (any order) and may add `ID acara` and `Catatan skrip` on the right. Tests (Node 18+, no install): `node --test automation/test`.
+- `Had pengesahan`: confirmation deadline, `HH:mm`, not before `Masa tamat` or 17:15 (default 18:30)
+- `Kod pengesahan`: the turn's secret code, `[A-Za-z0-9_-]{16,64}`; it changes whenever the person on the turn changes
+- `Emel KJ`: the Ketua Jabatan's email (the planner contact whose role is Ketua Jabatan), same on every row
+- `Hari tiada tugas`: no-duty days inside the turn, ISO dates separated by `;` (e.g. `2026-12-09;2026-12-10`)
+
+The script finds columns by name (any order), still reads the older 14-column file, and may add `ID acara`, `Catatan skrip` and `Kod pengesahan` on the right. Tests (Node 18+, no install): `node --test automation/test`.
+
+### Done confirmation ("Selesai") and escalation to the Ketua Jabatan
+
+The owner's MQS requirement: after the duty, the officer confirms the checklist; if they do not, the Ketua Jabatan (head of department) is told.
+
+- **Personal link.** With the script deployed as a web app (Execute as: Me; Who has access: Anyone), every WhatsApp message, D−2 email and calendar invitation carries the officer's own link, `{web app URL}?t={ID}&k={code}`. The page (Bahasa Melayu, phone-first, accessible) shows the five checklist items; **Selesai / Done** is enabled once all five are ticked, from 12:00 on the duty day. Opening a link never records anything; only the button does, and pressing it twice changes nothing. A wrong or outdated code shows "Pautan ini tidak sah" without any name.
+- **Timing (defaults).** 6:15 pm: reminder email to the officer if not yet confirmed. 6:30 pm (the deadline): alert email to the Ketua Jabatan with the secretary in cc. A confirmation after the deadline is recorded as *Lewat* (late) and the Ketua Jabatan gets one follow-up email. A trigger checks every 10 minutes from 5 pm on weekdays; if all of an evening's checks failed, the next morning's run sends the alert once, marked "(semalam)".
+- **No false alarms** for public holidays, no-duty days inside a weekly turn (`Hari tiada tugas`), weekends, or turns that began before the web app was set up.
+- **MQS evidence.** Each day is recorded in the Sheet tab **Pengesahan**: date, turn, officer, time confirmed, status (*Tepat masa*, *Lewat*, *Tidak disahkan*, *Tiada tugas*), checklist, reminder, alert and follow-up times.
+- **Without the web app**, the messages instead ask the officer to tell the secretary "SELESAI" by WhatsApp or email, and the planner shows a banner after the deadline with one-tap WhatsApp / email buttons to inform the Ketua Jabatan.
+- **Ketua Jabatan email**, in order: the menu **Last Man Out › Emel Ketua Jabatan** (e.g. an acting KJ), else the `Emel KJ` column, else the alert goes to the secretary alone with a note explaining why.
+- **Security.** Codes are random (about 122 to 128 bits). Because "Anyone" can call the script's public functions from the page, the menu functions do nothing outside the Sheet, and only `confirmLmo` records a confirmation.
+
+Setup steps in Bahasa Melayu: [PANDUAN.md section 11](automation/PANDUAN.md#11-butang-selesai-pengesahan-selepas-tugas).
 
 ## Project monitor (Pantauan projek)
 
@@ -193,7 +213,7 @@ docs/                  screenshots
 og.png                 preview image for social media links
 automation/            optional Google Apps Script for Last Man Out reminders
   LastManOut.gs        the script (paste into Extensions › Apps Script)
-  appsscript.json      script settings (time zone Asia/Kuala_Lumpur, V8)
+  appsscript.json      script settings (time zone Asia/Kuala_Lumpur, V8, web app access)
   PANDUAN.md           setup guide in Bahasa Melayu
   test/                Node tests with Apps Script mocks
 .gitignore             keeps staff CSV files out of the repository

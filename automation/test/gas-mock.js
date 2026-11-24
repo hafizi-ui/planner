@@ -48,15 +48,15 @@ function parseDate(str, tz, pattern) {
 /**
  * Creates a fresh context with mocks.
  * opts: { rows: string[][] (display values, row 1 = header), sheetName, props, quota, user, now (Date|string),
- *         promptText, promptButton, alertButton, calendarFails }
+ *         promptText, promptButton, alertButton, calendarFails, noUi, lockBusy, serviceUrl, triggers }
  */
 function createGas(opts) {
   opts = opts || {};
   const rec = {
     emails: [], events: [], deleted: [], triggers: [], alerts: [], prompts: [], menus: [], logs: [],
-    writes: [], propWrites: [], propDeletes: [], locks: 0
+    writes: [], propWrites: [], propDeletes: [], locks: 0, lockCalls: 0, reads: 0, html: [], inserted: [], frozen: []
   };
-  const state = { quota: opts.quota == null ? 1500 : opts.quota, now: new Date(opts.now || "2026-12-05T07:05:00+08:00"), nextEvent: 1, nextTrigger: 1 };
+  const state = { quota: opts.quota == null ? 1500 : opts.quota, now: new Date(opts.now || "2026-12-05T07:05:00+08:00"), nextEvent: 1, nextTrigger: 1, nextUuid: 1 };
 
   /* ----- Spreadsheet ----- */
   function makeSheet(name, rows) {
@@ -68,8 +68,13 @@ function createGas(opts) {
       getLastColumn: () => width(),
       getLastRow: () => data.length,
       getDataRange: () => ({
-        getDisplayValues: () => { const w = width(); return data.map((r) => { const c = r.slice(); while (c.length < w) c.push(""); return c; }); }
+        getDisplayValues: () => {
+          rec.reads++;
+          const w = width();
+          return data.length ? data.map((r) => { const c = r.slice(); while (c.length < w) c.push(""); return c; }) : [[""]];   // like Sheets: never empty
+        }
       }),
+      setFrozenRows: (n) => { rec.frozen.push({ sheet: name, rows: n }); },
       getRange: (row, col) => {
         if (!(row >= 1 && col >= 1)) throw new Error("getRange: bad cell " + row + "," + col);
         const range = {
@@ -91,7 +96,14 @@ function createGas(opts) {
   const ss = {
     getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
     getSheets: () => sheets.slice(),
-    getName: () => "Giliran Last Man Out (ujian)"
+    getName: () => "Giliran Last Man Out (ujian)",
+    insertSheet: (n) => {
+      if (sheets.some((s) => s.getName() === n)) throw new Error("A sheet with the name \"" + n + "\" already exists.");
+      const sh = makeSheet(n, []);
+      sheets.push(sh);
+      rec.inserted.push(n);
+      return sh;
+    }
   };
   const Button = { OK: "OK", CANCEL: "CANCEL", YES: "YES", NO: "NO", CLOSE: "CLOSE" };
   const ButtonSet = { OK: "OK", OK_CANCEL: "OK_CANCEL", YES_NO: "YES_NO", YES_NO_CANCEL: "YES_NO_CANCEL" };
@@ -205,6 +217,7 @@ function createGas(opts) {
     return Object.assign({ getHandlerFunction: () => cfg.fn, getUniqueId: () => id, _cfg: cfg });
   }
   const ScriptApp = {
+    getService: () => ({ getUrl: () => (opts.serviceUrl == null ? null : opts.serviceUrl) }),
     getProjectTriggers: () => triggers.slice(),
     deleteTrigger: (t) => { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
     newTrigger: (fn) => {
@@ -215,6 +228,10 @@ function createGas(opts) {
         atHour: (h) => { cfg.atHour = h; return b; },
         nearMinute: (m) => { cfg.nearMinute = m; return b; },
         inTimezone: (tz) => { cfg.tz = tz; return b; },
+        everyMinutes: (n) => {
+          if ([1, 5, 10, 15, 30].indexOf(n) < 0) throw new Error("everyMinutes: 1, 5, 10, 15 or 30 only");
+          cfg.everyMinutes = n; return b;
+        },
         create: () => { const t = makeTrigger(cfg); triggers.push(t); return t; }
       };
       return b;
@@ -222,8 +239,8 @@ function createGas(opts) {
   };
   const LockService = {
     getScriptLock: () => ({
-      tryLock: () => { rec.locks++; return opts.lockBusy ? false : true; },
-      waitLock: () => {},
+      tryLock: () => { rec.lockCalls++; if (opts.lockBusy) return false; rec.locks++; return true; },
+      waitLock: () => { rec.lockCalls++; if (opts.lockBusy) throw new Error("Lock timeout"); rec.locks++; },
       releaseLock: () => { rec.locks--; },
       hasLock: () => rec.locks > 0
     })
@@ -231,10 +248,25 @@ function createGas(opts) {
   const user = { getEmail: () => (opts.user == null ? "su@example.com" : opts.user) };
   const Session = { getEffectiveUser: () => user, getActiveUser: () => user, getScriptTimeZone: () => "Asia/Kuala_Lumpur" };
   const Logger = { log: (...a) => { rec.logs.push(a.join(" ")); } };
-  const Utilities = { formatDate, parseDate };
+  const Utilities = {
+    formatDate, parseDate,
+    getUuid: () => { const n = String(state.nextUuid++).padStart(12, "0"); return "5f0c1a2b-3c4d-4e5f-8a6b-" + n; }
+  };
+  const HtmlService = {
+    createHtmlOutput: (html) => {
+      const out = { html: String(html), title: "", meta: [] };
+      rec.html.push(out);
+      const api = {
+        setTitle: (t) => { out.title = t; return api; },
+        addMetaTag: (n, c) => { out.meta.push([n, c]); return api; },
+        getContent: () => out.html
+      };
+      return api;
+    }
+  };
 
   const ctx = vm.createContext({
-    SpreadsheetApp, CalendarApp, MailApp, PropertiesService, ScriptApp, LockService, Session, Logger, Utilities, console
+    SpreadsheetApp, CalendarApp, MailApp, PropertiesService, ScriptApp, LockService, Session, Logger, Utilities, HtmlService, console
   });
   vm.runInContext(SRC, ctx, { filename: "LastManOut.gs" });
   // Injectable clock: the script calls now_() for "now".
@@ -242,6 +274,7 @@ function createGas(opts) {
 
   return {
     ctx, rec, store, triggers, sheet: sheets[0],
+    sheetData: (n) => { const sh = sheets.find((x) => x.getName() === n); return sh ? sh._data : null; },
     setNow: (d) => { state.now = new Date(d); },
     setQuota: (q) => { state.quota = q; },
     setRows: (rows) => { sheets[0]._data.length = 0; rows.forEach((r) => sheets[0]._data.push(r.map(String))); },

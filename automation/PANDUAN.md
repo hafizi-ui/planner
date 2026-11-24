@@ -13,16 +13,17 @@ Selepas dipasang, skrip ini menghantar notis Last Man Out (MQS) bagi pihak anda 
 
 | Bila | Apa skrip buat | Siapa terima |
 |---|---|---|
-| **2 hari sebelum giliran**, sekitar 7 pagi (termasuk Sabtu dan Ahad). Contoh: giliran bermula Isnin, notis dihantar Sabtu. | Emel *"Giliran Last Man Out (MQS): ..."* dan **jemputan Google Calendar** (16:45–17:15 setiap hari bekerja dalam giliran itu) | Pegawai bertugas |
+| **2 hari sebelum giliran**, sekitar 7 pagi (termasuk Sabtu dan Ahad). Contoh: giliran bermula Isnin, notis dihantar Sabtu. | Emel *"Giliran Last Man Out (MQS): ..."* dan **jemputan Google Calendar** (waktu bertugas setiap hari bekerja dalam giliran itu; lalai 18:00–18:15) | Pegawai bertugas |
 | **Hari pertama giliran**, sekitar 7 pagi | Emel ringkasan dengan butang **Buka WhatsApp untuk (nama pegawai)** | Anda (SU) |
 | **7 hari sebelum giliran**, jika pegawai itu tiada emel dalam Sheet | Amaran, supaya anda sempat mengisi emelnya | Anda (SU) |
+| **Setiap hari bertugas, selepas tugas** (jika **butang Selesai** dipasang, Langkah 11) | 18:15: peringatan jika pegawai belum menekan Selesai. 18:30: amaran jika masih belum | Pegawai (peringatan); Ketua Jabatan, salinan kepada anda (amaran) |
 | Bila ada masalah (tiada emel, kuota, ralat) | Disenaraikan dalam emel ringkasan dan dalam lajur **Catatan skrip** dalam Sheet | Anda (SU) |
 
 - Skrip berjalan sendiri setiap pagi antara 7 dan 8 pagi (waktu Malaysia). Komputer atau telefon anda tidak perlu dibuka.
 - Emel dihantar daripada akaun anda, jadi pegawai boleh terus membalas kepada anda (contoh: jika mereka bercuti atau berkursus).
 - Jika skrip terlepas satu pagi, ia menghantar keesokan harinya, asalkan giliran belum bermula.
 - Notis yang sudah dihantar **tidak dihantar semula**, walaupun anda import jadual baharu.
-- Jemputan kalendar dalam kalendar anda sendiri ada peringatan pop-up 30 minit sebelum 16:45.
+- Jemputan kalendar dalam kalendar anda sendiri ada peringatan pop-up 30 minit sebelum waktu bertugas bermula.
 
 ### Kenapa WhatsApp tidak dihantar secara automatik?
 
@@ -65,7 +66,9 @@ Jika pegawai itu tiada No. WhatsApp dalam Sheet, emel ringkasan memberi mesej un
    - **Buang tanda** pada **Tukar teks kepada nombor, tarikh dan formula** (Convert text to numbers, dates, and formulas)
    - Tekan **Import data**.
 5. Semak baris 1. Ia mesti mengandungi tajuk ini:
-   `ID, Mula, Tamat, Masa mula, Masa tamat, Nama, Emel, No WhatsApp, Jawatan, Program, Cuti, Emel dihantar, Kalendar dihantar, WhatsApp dihantar`
+   `ID, Mula, Tamat, Masa mula, Masa tamat, Nama, Emel, No WhatsApp, Jawatan, Program, Cuti, Emel dihantar, Kalendar dihantar, WhatsApp dihantar, Had pengesahan, Kod pengesahan, Emel KJ, Hari tiada tugas`
+
+   (Fail CSV daripada planner versi lama tidak mempunyai 4 lajur terakhir. Skrip masih berfungsi, tetapi butang Selesai memerlukan planner terkini.)
 6. Semak lajur **Emel**. Pegawai tanpa emel tidak akan menerima emel atau jemputan kalendar (skrip akan memberitahu anda).
 7. Pastikan nama tab masih **Giliran**.
 
@@ -94,6 +97,8 @@ Menu **Last Man Out** mengandungi:
 | **Uji tanpa hantar** | Lihat apa yang akan dihantar pada sesuatu tarikh. Tiada apa-apa dihantar. |
 | **Hantar emel ujian kepada saya** | Terima contoh emel, jemputan kalendar dan emel WhatsApp. Hanya anda yang terima. |
 | **Jalankan sekarang** | Hantar sekarang notis yang perlu dihantar hari ini (tanpa tunggu esok pagi) |
+| **Pautan Selesai (web app)** | Simpan URL web app untuk butang Selesai (Langkah 11) |
+| **Emel Ketua Jabatan** | Tetapkan emel lain untuk amaran, contohnya pemangku Ketua Jabatan (Langkah 11) |
 | **Henti automatik** | Hentikan semua peringatan automatik |
 
 ---
@@ -109,13 +114,13 @@ Menu **Last Man Out** mengandungi:
      - melihat dan mengubah **Sheet ini sahaja** (untuk membaca jadual dan menulis tarikh dihantar);
      - menghantar emel sebagai anda;
      - mengurus kalendar anda (untuk mencipta jemputan);
-     - berjalan semasa anda tiada (jadual setiap pagi);
+     - berjalan semasa anda tiada (jadual setiap pagi, dan semakan butang Selesai setiap 10 minit);
      - memaparkan menu dan kotak mesej dalam Sheet;
      - melihat alamat emel anda (supaya emel ringkasan sampai kepada anda).
 3. Jika klik pertama hanya memaparkan skrin kebenaran, pilih **Pasang (sekali sahaja)** sekali lagi.
 4. Mesej **Automatik dipasang** muncul, bersama bilangan giliran yang dijumpai dalam tab Giliran.
 
-Menekan **Pasang** dua kali tidak mendatangkan masalah: hanya satu jadual harian disimpan.
+Menekan **Pasang** dua kali tidak mendatangkan masalah: hanya dua jadual disimpan (larian harian 7 pagi, dan semakan butang Selesai setiap 10 minit pada hari bekerja mulai 17:00; semakan ini tidak berbuat apa-apa selagi butang Selesai belum dipasang).
 
 Jika anda memasang selepas jam 8 pagi, larian automatik pertama ialah esok pagi. Jika ada notis yang perlu dihantar hari ini, pilih **Jalankan sekarang**.
 
@@ -169,6 +174,7 @@ Apa yang skrip buat selepas itu:
 - Jika giliran ditukar **selepas** jemputan dihantar (hari D−2 atau D−1), jemputan kalendar pegawai lama **dibatalkan secara automatik**, dan pegawai baharu menerima emel serta jemputan pada larian pagi berikutnya. Untuk menghantar serta-merta, pilih **Jalankan sekarang**. Sila maklumkan juga pegawai lama secara peribadi; emel ringkasan akan mengingatkan anda.
 - Jika giliran ditukar **selepas tugas bermula**, skrip tidak menghantar emel. Emel ringkasan meminta anda memaklumkan pegawai berkenaan sendiri.
 - Minggu **Cuti umum / tiada tugas**: tiada notis. Jemputan yang sudah dihantar untuk minggu itu dibatalkan.
+- Butang Selesai (Langkah 11): apabila pegawai bagi sesuatu giliran ditukar, planner memberi **kod baharu** kepada giliran itu. Pautan lama tidak sah lagi; pegawai baharu menerima pautan baharu dalam emel dan WhatsApp.
 
 Lajur **Emel dihantar**, **Kalendar dihantar**, **ID acara** dan **Catatan skrip** diisi oleh skrip. Tidak mengapa jika lajur itu hilang selepas import semula; rekod "sudah dihantar" juga disimpan dalam skrip.
 
@@ -176,7 +182,7 @@ Lajur **Emel dihantar**, **Kalendar dihantar**, **ID acara** dan **Catatan skrip
 
 ## 9. Henti automatik
 
-Pilih **Last Man Out › Henti automatik**. Skrip tidak akan menghantar apa-apa lagi.
+Pilih **Last Man Out › Henti automatik**. Skrip tidak akan menghantar apa-apa lagi (termasuk peringatan dan amaran butang Selesai). Pautan Selesai masih boleh dibuka dan merekod pengesahan, tetapi tiada amaran dihantar.
 
 - Rekod "sudah dihantar" disimpan. Jika anda **Pasang** semula kemudian, tiada sesiapa menerima notis berganda.
 - Dalam planner, buang tanda tetapan di Langkah 7 supaya planner kembali mengingatkan anda menghantar emel dan jemputan kalendar sendiri.
@@ -201,9 +207,99 @@ Pilih **Last Man Out › Henti automatik**. Skrip tidak akan menghantar apa-apa 
 
 ---
 
+## 11. Butang Selesai (pengesahan selepas tugas)
+
+Pilihan tambahan. Pegawai bertugas menekan **Selesai** selepas menyemak pejabat. Jika tiada pengesahan, Ketua Jabatan dimaklumkan secara automatik.
+
+### 11.1 Apa yang berlaku
+
+- Mesej WhatsApp, emel D−2 dan jemputan Google Calendar mengandungi **pautan peribadi** pegawai, contohnya:
+  `https://script.google.com/macros/s/.../exec?t=lmo-2026-12-07&k=...`
+- Selepas tugas, pegawai membuka pautan itu, menanda **lima perkara** senarai semak, dan menekan **Selesai / Done**. Butang boleh ditekan mulai 12:00 pada hari bertugas.
+- **18:15**: jika belum disahkan, pegawai menerima emel peringatan dengan pautan yang sama.
+- **18:30** (had pengesahan): jika masih belum, **Ketua Jabatan** menerima emel *"... belum mengesahkan tugas"*, dengan **salinan kepada anda**. Amaran sampai dalam masa lebih kurang 10 minit selepas had.
+- Jika pegawai menekan Selesai selepas amaran, status direkod **Lewat** dan Ketua Jabatan menerima satu emel susulan (salinan kepada anda).
+- Setiap pengesahan direkod dalam tab baharu **Pengesahan** (dicipta secara automatik): Tarikh, ID, Nama PIC, Masa disahkan, Status (**Tepat masa**, **Lewat**, **Tidak disahkan** atau **Tiada tugas**), Senarai semak, Peringatan PIC, Amaran KJ, Susulan KJ. Tab ini boleh dicetak sebagai **bukti audit MQS**.
+- Hari **Tiada tugas** (contohnya cuti umum di tengah minggu, ditanda dalam planner) dan hari Sabtu/Ahad tidak disemak. Tiada amaran.
+- Senarai semak kertas dan tandatangan masih boleh digunakan seperti biasa.
+- Jika skrip gagal berjalan sepanjang petang (jarang berlaku), amaran dihantar keesokan paginya dengan tajuk berakhir *"(semalam)"*.
+- Membuka pautan **tidak pernah** merekod apa-apa. Hanya butang Selesai merekod pengesahan, dan menekannya dua kali tidak mengubah apa-apa.
+
+### 11.2 Kemas kini kod
+
+1. Salin kod terkini **LastManOut.gs** dari GitHub (Langkah 4) dan tampal menggantikan kod lama dalam Apps Script. Simpan.
+2. Dalam Google Sheet, pilih **Last Man Out › Pasang (sekali sahaja)** sekali lagi. Jika Google meminta kebenaran baharu, benarkan.
+
+### 11.3 Deploy web app (sekali sahaja)
+
+1. Dalam Apps Script, tekan butang biru **Deploy** di kanan atas › **New deployment** (dalam BM mungkin dipaparkan sebagai **Gunakan › Penggunaan baharu**).
+2. Tekan ikon gear di sebelah **Select type** › pilih **Web app** (Apl web).
+3. Isi:
+   - Description: `Butang Selesai`
+   - **Execute as** (Laksanakan sebagai): **Me** (akaun anda)
+   - **Who has access** (Siapa yang mempunyai akses): **Anyone** (Sesiapa sahaja)
+4. Tekan **Deploy**. Jika diminta, tekan **Authorize access** dan benarkan (seperti Langkah 5).
+5. Salin **Web app URL**. URL itu bermula `https://script.google.com/` dan **berakhir dengan `/exec`**.
+
+Kenapa **Anyone**: ramai pegawai membuka pautan WhatsApp dalam pelayar yang tidak log masuk ke akaun KPTM. Jika akses dihadkan, mereka melihat skrin log masuk, tidak dapat menekan Selesai, dan Ketua Jabatan menerima amaran palsu. Keselamatan dijaga oleh **kod rahsia** dalam setiap pautan: pautan tanpa kod yang betul hanya memaparkan *"Pautan ini tidak sah"*, tanpa nama sesiapa.
+
+### 11.4 Simpan URL dalam Sheet
+
+1. Dalam Google Sheet: **Last Man Out › Pautan Selesai (web app)**.
+2. Tampal URL tadi dan tekan **OK**. Skrip menyimpan URL itu, menulis kod pengesahan bagi giliran yang belum ada kod, dan memaparkan URL itu semula.
+
+### 11.5 Simpan URL dalam planner (hari yang sama)
+
+1. Dalam planner: **⋯ › Giliran Last Man Out › Tetapan giliran**.
+2. Tampal URL yang sama dalam **URL web app Selesai (pilihan)**. Semak **Had pengesahan Selesai** (lalai 18:30).
+3. **Eksport CSV untuk Google Sheet** dan import semula ke tab **Giliran** (Langkah 3).
+
+Buat Langkah 11.4 dan 11.5 pada hari yang sama, sebelum notis seterusnya dihantar, supaya pautan dalam mesej pegawai menggunakan kod yang sama seperti dalam Sheet.
+
+Giliran yang sudah bermula sebelum URL disimpan tidak akan menimbulkan amaran (pegawai itu belum menerima pautan).
+
+### 11.6 Emel Ketua Jabatan
+
+- Skrip menggunakan emel kenalan planner yang **Jawatan**nya **Ketua Jabatan** (lajur **Emel KJ** dalam CSV). Pastikan kenalan itu ada emel, kemudian eksport dan import semula.
+- Untuk pemangku Ketua Jabatan: **Last Man Out › Emel Ketua Jabatan**, tulis emel pemangku. Tulis **PADAM** untuk kembali kepada emel dalam Sheet.
+- Jika tiada emel Ketua Jabatan, amaran dihantar **kepada anda sahaja**, dengan penjelasan di bahagian atas emel.
+
+### 11.7 Uji dengan selamat
+
+- **Uji tanpa hantar** kini menerima masa: tulis contohnya `8/12/2026 18:35`. Kotak itu menyenaraikan peringatan dan amaran yang **akan** dihantar pada masa itu. Tiada apa-apa dihantar.
+- **Hantar emel ujian kepada saya**: emel ujian mengandungi pautan Selesai sebenar pegawai seterusnya. Anda boleh membukanya untuk melihat halaman (membuka pautan tidak merekod apa-apa), tetapi **jangan tekan Selesai** bagi pihak pegawai.
+
+### 11.8 Bila kod dikemas kini kemudian
+
+Jangan cipta **New deployment** baharu: URL baharu akan merosakkan semua pautan yang sudah dihantar. Sebaliknya:
+
+**Deploy › Manage deployments** (Urus deployment) › ikon pensel (**Edit**) › **Version: New version** › **Deploy**. URL kekal sama.
+
+### 11.9 Jika "Anyone" tidak ditawarkan
+
+Pentadbir KPTM mungkin hanya membenarkan **Anyone within Kolej Poly-Tech MARA**. Pilih itu buat sementara, dan:
+
+- pegawai mesti membuka pautan dalam pelayar yang log masuk dengan akaun `@kptm.edu.my` (dalam WhatsApp: tekan lama pautan › **Buka dalam Chrome** atau **Safari**);
+- jangkakan beberapa amaran palsu kepada Ketua Jabatan sehingga Unit IT membenarkan **Anyone**. Minta Unit IT KPTM membenarkannya.
+
+### 11.10 Masalah lazim (butang Selesai)
+
+| Masalah | Apa perlu dibuat |
+|---|---|
+| Pegawai melihat *"Pautan ini tidak sah atau telah dibatalkan"* | Giliran diubah dalam planner (kod baharu) tetapi CSV belum diimport semula, atau pegawai membuka pautan lama selepas giliran ditukar. Eksport dan import semula, kemudian hantar pautan terkini. |
+| Pegawai melihat skrin log masuk Google | Semak **Who has access** = **Anyone** (Langkah 11.3), atau lihat Langkah 11.9. |
+| *"Butang Selesai boleh ditekan mulai 12:00"* | Pautan dibuka sebelum 12:00 pada hari bertugas. Cuba lagi selepas tugas. |
+| *"Tiada tugas Last Man Out untuk ... hari ini"* | Bukan hari bertugas pegawai itu (atau hari itu ditanda **Tiada tugas**). |
+| Ketua Jabatan menerima amaran walaupun pegawai sudah bertugas | Pegawai terlupa menekan Selesai. Status kekal dalam tab Pengesahan; jika pegawai menekan Selesai selepas itu, Ketua Jabatan menerima emel susulan. |
+| Mahu hentikan amaran Selesai sahaja | Dalam Apps Script, ubah `CONFIRM: true` kepada `CONFIRM: false`, dan simpan. Notis giliran (emel, kalendar, WhatsApp) diteruskan. |
+| Mahu tukar masa peringatan | `REMIND_BEFORE: 15` (minit sebelum had; `0` = tiada peringatan). Had pengesahan ditetapkan dalam planner. |
+
+---
+
 ## Privasi data staf (PDPA)
 
 - Google Sheet ini mengandungi nama, emel dan nombor telefon staf. **Jangan kongsi** dengan orang yang tidak berkenaan.
 - **Jangan muat naik** fail CSV ahli atau CSV giliran ke GitHub atau tempat awam.
 - Planner dan skrip ini tidak menghantar data ke mana-mana pelayan lain. Emel dan jemputan dihantar daripada akaun anda terus kepada pegawai bertugas sahaja.
 - Adalah baik untuk memaklumkan staf bahawa emel kerja dan No. WhatsApp mereka digunakan untuk peringatan giliran Last Man Out.
+- Halaman butang Selesai hanya memaparkan nama pegawai kepada orang yang memegang pautan peribadi dengan kod yang betul. Jangan kongsi pautan pegawai lain.

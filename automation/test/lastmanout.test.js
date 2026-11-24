@@ -10,27 +10,42 @@ const { createGas, loadPure, parseCsv } = require("./gas-mock");
 
 const ROOT = path.join(__dirname, "..", "..");
 const FIXTURE = path.join(__dirname, "fixtures", "sample-giliran.csv");
-const HEADER = "ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar".split(",");
+// Contract 2 (18 columns since the Selesai addendum) and the old 14-column header, which must keep working.
+const HEADER14 = "ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar".split(",");
+const HEADER = HEADER14.concat(["Had pengesahan", "Kod pengesahan", "Emel KJ", "Hari tiada tugas"]);
 const SU = "su@example.com";
+const KJ = "kj.ujian@example.com";
+const WEBAPP = "https://script.google.com/macros/s/AKfycbTestDeployment_0123456789/exec";
+const CODE1 = "Kod_Ujian-0000000001";   // 20 chars, matches [A-Za-z0-9_-]{16,64}
 
 // Section E templates, written out in full so the tests check the contract, not the script against itself.
 const SENARAI = "1. Semua lampu ditutup\n2. Penyaman udara & kipas dimatikan\n3. Suis utama dimatikan / palam dicabut\n" +
   "4. Pintu utama & tingkap dikunci\n5. Tandatangan borang & catat masa keluar";
 const SIGNOFF = "Setiausaha Jabatan JPPP, KPTM Kuantan";
 const WEEK1 = "Isnin, 7 Disember 2026 hingga Jumaat, 11 Disember 2026";
+// Addendum section 1: the confirmation paragraph that follows the checklist (with or without the personal link).
+const paraLink = (had, url) => "Selepas tugas selesai setiap hari bertugas, tekan pautan ini dan tanda Selesai sebelum " + had + ":\n" + url +
+  "\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan.";
+const paraNoLink = (had) => "Selepas tugas selesai setiap hari bertugas, maklumkan SELESAI kepada Setiausaha Jabatan melalui WhatsApp atau emel sebelum " +
+  had + ". Jika tiada pengesahan, Ketua Jabatan akan dimaklumkan.";
+const NO_LINK = paraNoLink("18:30");
+const link = (id, code) => WEBAPP + "?t=" + id + "&k=" + code;
 const expectSubject = (tempoh) => "Giliran Last Man Out (MQS): " + tempoh;
-const expectBody = (nama, tempoh, from, to) => "Salam " + nama + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " +
-  tempoh + ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + SENARAI +
+const expectBody = (nama, tempoh, from, to, para = NO_LINK) => "Salam " + nama + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " +
+  tempoh + ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + from + "–" + to + "):\n" + SENARAI + "\n\n" + para +
   "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar.\n\nTerima kasih.\n" + SIGNOFF;
-const expectWa = (nama, bila, tempoh, from) => "Salam " + nama + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + bila +
-  " (" + tempoh + ").\n\nSebelum pulang (sekitar " + from + "), sila pastikan:\n" + SENARAI + "\n\nTerima kasih.\n" + SIGNOFF;
-const CAL_DETAILS = "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + SENARAI + "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS).";
+const expectWa = (nama, bila, tempoh, from, para = NO_LINK) => "Salam " + nama + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + bila +
+  " (" + tempoh + ").\n\nSebelum pulang (sekitar " + from + "), sila pastikan:\n" + SENARAI + "\n\n" + para + "\n\nTerima kasih.\n" + SIGNOFF;
+const calDetails = (para = NO_LINK) => "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + SENARAI + "\n\n" + para +
+  "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS).";
+const CAL_DETAILS = calDetails();
 
-/** One Sheet row in Contract 2 column order. */
+/** One Sheet row in Contract 2 column order (18 columns). */
 function row(o) {
-  return [o.id || "lmo-" + o.start, o.start, o.end || o.start, o.from || "16:45", o.to || "17:15", o.name == null ? "Pensyarah Ujian 1" : o.name,
+  return [o.id || "lmo-" + o.start, o.start, o.end || o.start, o.from == null ? "16:45" : o.from, o.to == null ? "17:15" : o.to,
+    o.name == null ? "Pensyarah Ujian 1" : o.name,
     o.email == null ? "ujian1@example.com" : o.email, o.phone == null ? "60120000001" : o.phone, o.role || "Pensyarah", o.prog == null ? "AA101" : o.prog,
-    o.off || "", o.mailStamp || "", o.calStamp || "", o.waStamp || ""];
+    o.off || "", o.mailStamp || "", o.calStamp || "", o.waStamp || "", o.had || "", o.code || "", o.kj || "", o.noDuty || ""];
 }
 const weekRow = (o) => row(Object.assign({ start: "2026-12-07", end: "2026-12-11" }, o || {}));
 const at = (isoLocal) => isoLocal + "+08:00";   // Malaysia time
@@ -458,7 +473,7 @@ test("the sample rota CSV (Contract 2) imports and plans correctly", () => {
   assert.deepEqual(rows[0], HEADER, "fixture header is exactly Contract 2");
   const g = loadPure();
   const cols = g.findHeader_(rows).cols;
-  assert.equal(Object.keys(cols).length, 14, "all 14 Contract 2 columns recognised");
+  assert.equal(Object.keys(cols).length, 18, "all 18 Contract 2 columns recognised");
   // Saturday 12 Dec: D−2 for lmo-2026-12-14; lmo-2026-12-07 is over (no action)
   const gas = createGas({ rows, now: at("2026-12-12T07:10:00") });
   gas.ctx.dailyRun();
@@ -483,16 +498,19 @@ test("the sample rota CSV (Contract 2) imports and plans correctly", () => {
   assert.match(digests(gas.rec).pop().body, /Tiada No\. WhatsApp yang sah/);
 });
 
-test("install() twice leaves exactly one daily trigger at 7am Malaysia time; uninstall() removes it", () => {
+test("install() twice leaves exactly 2 triggers (daily 7am + deadlineCheck every 10 min); uninstall() removes both", () => {
   const gas = createGas({ rows: [HEADER, weekRow()], triggers: [{ fn: "somethingElse" }] });
   gas.ctx.install();
   gas.ctx.install();
-  const mine = gas.triggers.filter((t) => t.getHandlerFunction() === "dailyRun");
-  assert.equal(mine.length, 1);
-  assert.deepEqual(mine[0]._cfg, { fn: "dailyRun", timeBased: true, everyDays: 1, atHour: 7, tz: "Asia/Kuala_Lumpur" });
+  const mine = gas.triggers.filter((t) => t.getHandlerFunction() !== "somethingElse");
+  assert.equal(mine.length, 2);
+  const daily = mine.find((t) => t.getHandlerFunction() === "dailyRun");
+  const check = mine.find((t) => t.getHandlerFunction() === "deadlineCheck");
+  assert.deepEqual(daily._cfg, { fn: "dailyRun", timeBased: true, everyDays: 1, atHour: 7, tz: "Asia/Kuala_Lumpur" });
+  assert.deepEqual(check._cfg, { fn: "deadlineCheck", timeBased: true, everyMinutes: 10 });
   assert.match(gas.rec.alerts.pop().message, /1 giliran dijumpai/);
   gas.ctx.uninstall();
-  assert.equal(gas.triggers.filter((t) => t.getHandlerFunction() === "dailyRun").length, 0);
+  assert.equal(gas.triggers.filter((t) => t.getHandlerFunction() !== "somethingElse").length, 0);
   assert.equal(gas.triggers.length, 1, "other triggers untouched");
 });
 
@@ -506,6 +524,8 @@ test("onOpen adds the Last Man Out menu", () => {
     "Uji tanpa hantar -> testRun",
     "Hantar emel ujian kepada saya -> sendTestToMe",
     "Jalankan sekarang -> runNow",
+    "Pautan Selesai (web app) -> showWebAppUrl",
+    "Emel Ketua Jabatan -> setKjEmail",
     "Henti automatik -> uninstall"
   ]);
   for (const i of gas.rec.menus[0].items) if (i.fn) assert.equal(typeof gas.ctx[i.fn], "function", i.fn + " exists");
@@ -565,6 +585,467 @@ test("a second run while one is running does nothing", () => {
   const r = gas.ctx.dailyRun();
   assert.equal(r.busy, true);
   assert.equal(gas.rec.emails.length, 0);
+});
+
+/* =================== Selesai confirmation + Ketua Jabatan escalation (addendum) =================== */
+
+const ID1 = "lmo-2026-12-07";
+const TICKS = [true, true, true, true, true];
+const CONF_HEAD = ["Tarikh", "ID", "Nama PIC", "Masa disahkan", "Status", "Senarai semak", "Peringatan PIC", "Amaran KJ", "Susulan KJ"];
+const CHECKED = "5/5: lampu, penyaman udara, suis/palam, pintu & tingkap, borang & masa keluar";
+const INVALID = "Pautan ini tidak sah atau telah dibatalkan (giliran mungkin telah ditukar). Sila hubungi Setiausaha Jabatan.";
+/** The Pengesahan tab as rows padded to its 9 columns (null when the tab does not exist). */
+const confRows = (gas) => { const d = gas.sheetData("Pengesahan"); return d && d.map((r) => { const c = r.slice(); while (c.length < 9) c.push(""); return c; }); };
+const plain = (x) => JSON.parse(JSON.stringify(x));
+/** A Selesai-ready Sheet: weekly turn Mon 7 – Fri 11 Dec 2026, with code and KJ email. */
+function selesaiGas(o, extra) {
+  return createGas(Object.assign({ rows: [HEADER, weekRow(Object.assign({ code: CODE1, kj: KJ }, o || {}))], props: { WEBAPP_URL: WEBAPP } }, extra || {}));
+}
+const nothingWritten = (rec) => rec.emails.length + rec.writes.length + rec.propWrites.length + rec.propDeletes.length + rec.inserted.length + rec.events.length;
+
+test("Selesai pure: default times 18:00 / 18:15 / 18:30 and Had pengesahan rules", () => {
+  const g = loadPure();
+  assert.equal(g.CFG.TIME_FROM, "18:00");
+  assert.equal(g.CFG.TIME_TO, "18:15");
+  assert.equal(g.CFG.DEADLINE, "18:30");
+  const parse = (o) => g.parseRows_([HEADER, weekRow(o)], g.CFG).items[0];
+  const blank = parse({ from: "", to: "" });
+  assert.deepEqual([blank.timeFrom, blank.timeTo, blank.deadline, blank.badDeadline], ["18:00", "18:15", "18:30", false]);
+  assert.equal(parse({ from: "", to: "", had: "18:45" }).deadline, "18:45");
+  assert.equal(parse({ from: "", to: "", had: "18:15" }).deadline, "18:15", "equal to Masa tamat is allowed");
+  const early = parse({ from: "", to: "", had: "18:10" });
+  assert.deepEqual([early.deadline, early.badDeadline], ["18:30", true], "before Masa tamat -> default");
+  const tooEarly = parse({ from: "16:30", to: "17:00", had: "17:05" });
+  assert.deepEqual([tooEarly.deadline, tooEarly.badDeadline], ["18:30", true], "before 17:15 -> default");
+  assert.equal(parse({ from: "18:30", to: "19:00" }).deadline, "19:00", "default never before Masa tamat");
+  const nd = parse({ noDuty: "2026-12-09;2026-12-10" });
+  assert.deepEqual([...nd.noDuty], ["2026-12-09", "2026-12-10"]);
+  assert.deepEqual([...nd.dutyDays], ["2026-12-07", "2026-12-08", "2026-12-11"]);
+  assert.equal(nd.days.length, 5, "calendar still covers the whole turn");
+  assert.equal(parse({ code: "short" }).code, "", "invalid code ignored");
+  assert.equal(parse({ code: CODE1, kj: KJ }).kjEmail, KJ);
+});
+
+test("Selesai pure: URL regex, code regex and link format follow the contract", () => {
+  const g = loadPure();
+  for (const u of [WEBAPP, "https://script.google.com/a/macros/kptm.edu.my/s/AKfycb_x-Y/exec"]) assert.equal(g.validWebUrl_(u), true, u);
+  for (const u of ["", "http://script.google.com/macros/s/AKfy/exec", "https://script.google.com/macros/s/AKfy/dev",
+    "https://script.google.com/macros/s/AKfy/exec?x=1", "https://evil.example.com/macros/s/AKfy/exec", "https://script.google.com/a/macros/KPTM/s/x/exec"]) {
+    assert.equal(g.validWebUrl_(u), false, u);
+  }
+  assert.equal(g.validCode_("abcdefghij012345"), true);
+  assert.equal(g.validCode_("a".repeat(64)), true);
+  assert.equal(g.validCode_("a".repeat(15)), false);
+  assert.equal(g.validCode_("a".repeat(65)), false);
+  assert.equal(g.validCode_("abcdefghij01234+"), false);
+  assert.equal(g.linkFor_(WEBAPP, { id: ID1, code: CODE1 }), WEBAPP + "?t=" + ID1 + "&k=" + CODE1);
+});
+
+test("Selesai pure: email, calendar and WhatsApp carry the exact link paragraph (or the SELESAI line, or nothing if CONFIRM is off)", () => {
+  const g = loadPure();
+  const props = { WEBAPP_URL: WEBAPP };
+  const url = link(ID1, CODE1), withLink = paraLink("18:45", url);
+  const d2 = g.planActions_([HEADER, weekRow({ code: CODE1, had: "18:45" })], "2026-12-05", props, g.CFG);
+  assert.equal(d2.actions[0].body, expectBody("Pensyarah Ujian 1", WEEK1, "16:45", "17:15", withLink));
+  assert.equal(d2.actions[1].description, calDetails(withLink));
+  const day = g.planActions_([HEADER, weekRow({ code: CODE1, had: "18:45" })], "2026-12-07", Object.assign({
+    "email|lmo-2026-12-07|ujian1@example.com": "x", "cal|lmo-2026-12-07|ujian1@example.com": "e" }, props), g.CFG);
+  assert.equal(day.actions[0].text, expectWa("Pensyarah Ujian 1", "minggu ini", WEEK1, "16:45", withLink));
+  // No web app: the SELESAI line with the row's deadline
+  const none = g.planActions_([HEADER, weekRow({ code: CODE1, had: "18:45" })], "2026-12-05", {}, g.CFG);
+  assert.equal(none.actions[0].body, expectBody("Pensyarah Ujian 1", WEEK1, "16:45", "17:15", paraNoLink("18:45")));
+  // CONFIRM false: no promise that the KJ will be told
+  g.CFG.CONFIRM = false;
+  const off = g.planActions_([HEADER, weekRow({ code: CODE1 })], "2026-12-05", props, g.CFG);
+  assert.doesNotMatch(off.actions[0].body, /Selesai|SELESAI|Ketua Jabatan/);
+  assert.match(off.actions[0].body, /catat masa keluar\n\nJemputan Google Calendar turut dihantar/);
+});
+
+test("Selesai pure: confirmState_ gives the five states (weekend inside a turn and no-duty days are notToday)", () => {
+  const g = loadPure();
+  const r = g.parseRows_([HEADER, weekRow({ code: CODE1, noDuty: "2026-12-09" })], g.CFG).items[0];
+  const st = (day, hhmm, props) => g.confirmState_(r, day, hhmm, props || {}, g.CFG);
+  assert.equal(st("2026-12-08", "12:00").state, "open");
+  assert.equal(st("2026-12-08", "23:59").state, "open");
+  const early = st("2026-12-08", "11:59");
+  assert.deepEqual([early.state, early.text], ["early", "Butang Selesai boleh ditekan mulai 12:00 pada hari bertugas."]);
+  const done = st("2026-12-08", "19:00", { "conf|lmo-2026-12-07|2026-12-08": "18:20|Tepat masa" });
+  assert.deepEqual([done.state, done.time, done.status, done.text], ["done", "18:20", "Tepat masa", "✓ Sudah disahkan pada 18:20 (Tepat masa). Terima kasih."]);
+  const nd = st("2026-12-09", "18:00");
+  assert.deepEqual([nd.state, nd.text], ["notToday", "Tiada tugas Last Man Out untuk Pensyarah Ujian 1 hari ini. Giliran anda: " + WEEK1 + "."]);
+  assert.equal(st("2026-12-04", "18:00").state, "notToday", "before the turn");
+  assert.equal(st("2026-12-14", "18:00").state, "notToday", "after the turn");
+  // A turn that spans a weekend (Thu 10 - Tue 15 Dec): Saturday and Sunday are not duty days
+  const span = g.parseRows_([HEADER, row({ start: "2026-12-10", end: "2026-12-15", code: CODE1 })], g.CFG).items[0];
+  assert.equal(g.confirmState_(span, "2026-12-12", "18:00", {}, g.CFG).state, "notToday");
+  assert.equal(g.confirmState_(span, "2026-12-13", "18:00", {}, g.CFG).state, "notToday");
+  assert.equal(g.confirmState_(span, "2026-12-14", "18:00", {}, g.CFG).state, "open");
+  // invalid: no row, holiday, no name, no code; never shows a name
+  const parse = (o) => g.parseRows_([HEADER, weekRow(o)], g.CFG).items[0];
+  for (const x of [null, parse({ code: CODE1, off: "Ya" }), parse({ code: CODE1, name: "" }), parse({})]) {
+    const s = g.confirmState_(x, "2026-12-08", "18:00", {}, g.CFG);
+    assert.deepEqual([s.state, s.text], ["invalid", INVALID]);
+  }
+  // the link must match ID and code
+  const items = g.parseRows_([HEADER, weekRow({ code: CODE1 })], g.CFG).items;
+  assert.equal(g.findConfirmRow_(items, ID1, CODE1).id, ID1);
+  assert.equal(g.findConfirmRow_(items, ID1, "Kod_Lain-0000000002"), null);
+  assert.equal(g.findConfirmRow_(items, "lmo-2026-12-14", CODE1), null);
+  assert.equal(g.findConfirmRow_(items, ID1, ""), null);
+});
+
+test("doGet: any parameters write nothing, send nothing, take no lock; names are HTML-escaped; page is accessible", () => {
+  const gas = selesaiGas({ name: "Pensyarah <b>Ujian</b> & 'Satu'" }, { now: at("2026-12-08T18:20:00") });
+  const calls = [
+    { parameter: { t: ID1, k: CODE1 } }, { parameter: {} }, undefined, { parameter: { t: ID1, k: "Kod_Lain-0000000002" } },
+    { parameter: { t: "<script>alert(1)</script>", k: "<img src=x onerror=alert(1)>" } }, { parameter: { t: ID1, k: CODE1, ticks: "11111" } }
+  ];
+  const pages = calls.map((e) => gas.ctx.doGet(e).getContent());
+  assert.equal(nothingWritten(gas.rec), 0);
+  assert.equal(gas.rec.lockCalls, 0, "no lock");
+  assert.equal(gas.rec.html.length, calls.length);
+  for (const h of gas.rec.html) {
+    assert.deepEqual(h.meta, [["viewport", "width=device-width, initial-scale=1"]]);
+    assert.equal(h.title, "Last Man Out: Pengesahan Selesai");
+  }
+  const open = pages[0];
+  assert.match(open, /<html lang="ms">/);
+  assert.ok(open.includes("<h1>Last Man Out (MQS) – Pengesahan Selesai</h1>"));
+  assert.ok(open.includes("Jabatan Pengurusan Perniagaan &amp; Perakaunan, KPTM Kuantan"));
+  assert.ok(open.includes("Pegawai: <strong>Pensyarah &lt;b&gt;Ujian&lt;/b&gt; &amp; &#39;Satu&#39;</strong>"));
+  assert.ok(!open.includes("<b>Ujian</b>"));
+  assert.ok(open.includes("Tarikh: Selasa, 8 Disember 2026"));
+  const boxes = open.match(/<label class="item" for="c\d"><input type="checkbox" id="c\d">/g) || [];
+  assert.equal(boxes.length, 5, "five labelled checkboxes");
+  for (const item of ["Semua lampu ditutup", "Penyaman udara &amp; kipas dimatikan", "Suis utama dimatikan / palam dicabut", "Pintu utama &amp; tingkap dikunci", "Tandatangan borang &amp; catat masa keluar"]) {
+    assert.ok(open.includes("<span>" + item + "</span>"), item);
+  }
+  assert.match(open, /<button type="submit" id="b" disabled aria-describedby="h1 h2">Selesai \/ Done<\/button>/);
+  assert.match(open, /button\{[^}]*min-height:52px/);
+  assert.match(open, /\.item\{[^}]*min-height:48px/);
+  assert.ok(open.includes("Had pengesahan 18:30. Selepas had, pengesahan direkod sebagai Lewat."));
+  assert.match(open, /role="status" aria-live="polite"/);
+  assert.ok(open.includes('.confirmLmo("' + ID1 + '","' + CODE1 + '",t)'), "the page confirms only through google.script.run");
+  // invalid links: fixed message, no name, no form, nothing reflected
+  for (const p of [pages[1], pages[2], pages[3], pages[4]]) {
+    assert.ok(p.includes(INVALID));
+    assert.ok(!p.includes("Pensyarah"));
+    assert.ok(!p.includes("<form"));
+    assert.ok(!p.includes("<script>alert") && !p.includes("onerror"));
+  }
+  // opening the link again still shows the form: GET never confirms
+  assert.ok(pages[5].includes("<form"));
+  assert.equal(gas.store["conf|lmo-2026-12-07|2026-12-08"], undefined);
+});
+
+test("confirmLmo: fewer than 5 ticks rejected; 18:20 is Tepat masa; pressing again changes nothing", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:20:00") });
+  const no = gas.ctx.confirmLmo(ID1, CODE1, [true, true, true, true, false]);
+  assert.equal(no.ok, false);
+  assert.match(no.text, /kelima-lima/);
+  assert.equal(gas.ctx.confirmLmo(ID1, CODE1, "11111").ok, false, "ticks must be booleans");
+  assert.equal(confRows(gas), null, "nothing recorded yet");
+  assert.equal(gas.ctx.confirmLmo(ID1, "Kod_Lain-0000000002", TICKS).text, INVALID);
+
+  const ok = plain(gas.ctx.confirmLmo(ID1, CODE1, TICKS));
+  assert.deepEqual(ok, { ok: true, status: "Tepat masa", time: "18:20", name: "Pensyarah Ujian 1",
+    text: "✓ Terima kasih, Pensyarah Ujian 1. Disahkan 18:20 (Tepat masa)." });
+  assert.equal(gas.store["conf|lmo-2026-12-07|2026-12-08"], "18:20|Tepat masa");
+  assert.deepEqual(gas.rec.inserted, ["Pengesahan"]);
+  assert.deepEqual(gas.rec.frozen, [{ sheet: "Pengesahan", rows: 1 }]);
+  assert.deepEqual(confRows(gas), [CONF_HEAD, ["2026-12-08", ID1, "Pensyarah Ujian 1", "18:20", "Tepat masa", CHECKED, "", "", ""]]);
+  assert.ok(gas.rec.writes.filter((w) => w.sheet === "Pengesahan").every((w) => w.format === "@"), "written as text");
+  assert.equal(gas.rec.locks, 0, "lock released");
+
+  gas.setNow(at("2026-12-08T18:50:00"));
+  const again = gas.ctx.confirmLmo(ID1, CODE1, TICKS);
+  assert.deepEqual([again.ok, again.already, again.status, again.time], [true, true, "Tepat masa", "18:20"]);
+  assert.equal(confRows(gas).length, 2, "still one row");
+  assert.equal(gas.rec.emails.length, 0);
+  assert.match(gas.ctx.doGet({ parameter: { t: ID1, k: CODE1 } }).getContent(), /✓ Sudah disahkan pada 18:20 \(Tepat masa\)\. Terima kasih\./);
+  // exactly at the deadline is still on time; the next day starts fresh
+  const edge = selesaiGas({}, { now: at("2026-12-09T18:30:00") });
+  assert.equal(edge.ctx.confirmLmo(ID1, CODE1, TICKS).status, "Tepat masa");
+  const morning = selesaiGas({}, { now: at("2026-12-09T11:00:00") });
+  assert.equal(morning.ctx.confirmLmo(ID1, CODE1, TICKS).state, "early");
+});
+
+test("confirmLmo at 18:45 after the KJ alert: Lewat, one follow-up to the KJ with the SU in cc", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:31:00") });
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 1);
+  gas.setNow(at("2026-12-08T18:45:00"));
+  const r = gas.ctx.confirmLmo(ID1, CODE1, TICKS);
+  assert.deepEqual([r.ok, r.status, r.time], [true, "Lewat", "18:45"]);
+  assert.equal(gas.rec.emails.length, 2);
+  const f = gas.rec.emails[1];
+  assert.deepEqual([f.to, f.cc], [KJ, SU]);
+  assert.equal(f.subject, "Last Man Out 8/12/2026: Pensyarah Ujian 1 telah mengesahkan (lewat)");
+  assert.equal(f.body, "Salam Tuan/Puan,\n\nSusulan emel 18:31: Pensyarah Ujian 1 telah menekan Selesai pada 18:45, Selasa, 8 Disember 2026. Status: Lewat.\n\nTerima kasih.");
+  assert.deepEqual(confRows(gas), [CONF_HEAD, ["2026-12-08", ID1, "Pensyarah Ujian 1", "18:45", "Lewat", CHECKED, "", "18:31", "18:45"]]);
+  gas.ctx.confirmLmo(ID1, CODE1, TICKS);
+  gas.setNow(at("2026-12-08T18:55:00"));
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 2, "no second follow-up, no second alert");
+  // the follow-up is sent at most once, even if the confirmation record was lost
+  const lost = selesaiGas({}, { now: at("2026-12-08T18:50:00"), props: { WEBAPP_URL: WEBAPP, "kj|lmo-2026-12-07|2026-12-08": "18:31", "kjlate|lmo-2026-12-07|2026-12-08": "18:45" } });
+  assert.equal(lost.ctx.confirmLmo(ID1, CODE1, TICKS).status, "Lewat");
+  assert.equal(lost.rec.emails.length, 0);
+  // late but no alert was sent (e.g. checks failed): Lewat, no follow-up
+  const quiet = selesaiGas({}, { now: at("2026-12-08T18:45:00") });
+  assert.equal(quiet.ctx.confirmLmo(ID1, CODE1, TICKS).status, "Lewat");
+  assert.equal(quiet.rec.emails.length, 0);
+});
+
+test("deadlineCheck: 18:14 nothing, 18:15 one reminder, 18:30 one KJ alert (SU cc) and a 'Tidak disahkan' row", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:14:00") });
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 0);
+  gas.setNow(at("2026-12-08T18:15:00"));
+  gas.ctx.deadlineCheck();
+  gas.setNow(at("2026-12-08T18:25:00"));
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 1, "one reminder");
+  const rem = gas.rec.emails[0];
+  assert.equal(rem.to, "ujian1@example.com");
+  assert.equal(rem.subject, "Peringatan: tekan Selesai Last Man Out sebelum 18:30");
+  assert.equal(rem.body, "Salam Pensyarah Ujian 1,\n\nTuan/puan bertugas sebagai Pegawai Last Man Out hari ini (Selasa, 8 Disember 2026). Pengesahan belum diterima." +
+    "\n\nSelepas selesai, tekan pautan ini dan tanda Selesai sebelum 18:30:\n" + link(ID1, CODE1) +
+    "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + SIGNOFF);
+  gas.setNow(at("2026-12-08T18:30:00"));
+  gas.ctx.deadlineCheck();
+  gas.setNow(at("2026-12-08T18:40:00"));
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 2, "one alert");
+  const kj = gas.rec.emails[1];
+  assert.deepEqual([kj.to, kj.cc], [KJ, SU]);
+  assert.equal(kj.subject, "Last Man Out 8/12/2026: Pensyarah Ujian 1 belum mengesahkan tugas");
+  assert.equal(kj.body, "Salam Tuan/Puan Ketua Jabatan,\n\nUntuk makluman, Pegawai Last Man Out pada Selasa, 8 Disember 2026, Pensyarah Ujian 1 (Pensyarah / AA101), " +
+    "belum menekan Selesai bagi senarai semak Last Man Out (MQS) sehingga 18:30.\n\n" + SENARAI + "\n\nHubungi pegawai: https://wa.me/60120000001" +
+    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab Pengesahan.\n\nEmel automatik, Setiausaha Jabatan JPPP.");
+  assert.deepEqual(confRows(gas), [CONF_HEAD, ["2026-12-08", ID1, "Pensyarah Ujian 1", "", "Tidak disahkan", "", "18:15", "18:30", ""]]);
+  assert.equal(gas.rec.locks, 0, "lock released");
+  // no phone: no "Hubungi pegawai" line
+  const np = selesaiGas({ phone: "" }, { now: at("2026-12-08T18:35:00") });
+  np.ctx.deadlineCheck();
+  assert.doesNotMatch(np.rec.emails[0].body, /Hubungi pegawai/);
+  assert.match(np.rec.emails[0].body, /sehingga 18:30\.\n\n1\. Semua lampu ditutup[\s\S]*masa keluar\n\nJika pegawai mengesahkan/);
+});
+
+test("deadlineCheck: REMIND_BEFORE 0 means no reminder; the PIC without email gets none but the KJ is still told", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:20:00") });
+  gas.ctx.CFG.REMIND_BEFORE = 0;
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 0);
+  gas.setNow(at("2026-12-08T18:30:00"));
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 1);
+  assert.equal(gas.rec.emails[0].to, KJ);
+  const noMail = selesaiGas({ email: "" }, { now: at("2026-12-08T18:20:00") });
+  noMail.ctx.deadlineCheck();
+  assert.equal(noMail.rec.emails.length, 0);
+});
+
+test("deadlineCheck: no alert when confirmed, holiday row or no-duty day; no Sheet read at weekends, before 17:00, without URL or with CONFIRM off", () => {
+  const confirmed = selesaiGas({}, { now: at("2026-12-08T18:40:00"), props: { WEBAPP_URL: WEBAPP, "conf|lmo-2026-12-07|2026-12-08": "18:20|Tepat masa" } });
+  confirmed.ctx.deadlineCheck();
+  assert.equal(confirmed.rec.emails.length, 0);
+  const holiday = selesaiGas({ off: "Ya" }, { now: at("2026-12-08T18:40:00") });
+  holiday.ctx.deadlineCheck();
+  assert.equal(holiday.rec.emails.length, 0);
+  const nd = selesaiGas({ noDuty: "2026-12-08" }, { now: at("2026-12-08T18:20:00") });
+  nd.ctx.deadlineCheck();
+  assert.equal(nd.rec.emails.length + nd.rec.inserted.length, 0, "no reminder; row only at the deadline");
+  nd.setNow(at("2026-12-08T18:30:00"));
+  nd.ctx.deadlineCheck();
+  nd.setNow(at("2026-12-08T18:50:00"));
+  nd.ctx.deadlineCheck();
+  assert.equal(nd.rec.emails.length, 0);
+  assert.deepEqual(confRows(nd).slice(1).map((r) => r.slice(0, 5)), [["2026-12-08", ID1, "Pensyarah Ujian 1", "", "Tiada tugas"]], "written once");
+  for (const [label, gas] of [
+    ["Saturday", selesaiGas({}, { now: at("2026-12-12T18:40:00") })],
+    ["Sunday", selesaiGas({}, { now: at("2026-12-13T18:40:00") })],
+    ["16:59", selesaiGas({}, { now: at("2026-12-08T16:59:00") })],
+    ["no WEBAPP_URL", selesaiGas({}, { now: at("2026-12-08T18:40:00"), props: {} })],
+    ["bad WEBAPP_URL", selesaiGas({}, { now: at("2026-12-08T18:40:00"), props: { WEBAPP_URL: "https://script.google.com/macros/s/x/dev" } })]
+  ]) {
+    gas.ctx.deadlineCheck();
+    assert.equal(gas.rec.reads, 0, label + ": Sheet not read");
+    assert.equal(nothingWritten(gas.rec), 0, label);
+    assert.equal(gas.rec.lockCalls, 0, label);
+  }
+  const off = selesaiGas({}, { now: at("2026-12-08T18:40:00") });
+  off.ctx.CFG.CONFIRM = false;
+  off.ctx.deadlineCheck();
+  assert.equal(off.rec.reads + off.rec.emails.length, 0);
+});
+
+test("KJ email order: KJ_EMAIL property, then the most common Emel KJ in the Sheet, then the SU alone with a reason", () => {
+  const g = loadPure();
+  const items = (kjs) => kjs.map((k) => ({ kjEmail: k }));
+  assert.equal(g.kjEmail_(items(["a@example.com", "b@example.com", "B@example.com"]), {}).email, "b@example.com");
+  assert.equal(g.kjEmail_(items(["a@example.com", "b@example.com"]), {}).email, "a@example.com", "tie: first");
+  assert.deepEqual(plain(g.kjEmail_(items(["a@example.com"]), { KJ_EMAIL: " pemangku@example.com " })), { email: "pemangku@example.com", source: "property" });
+  assert.deepEqual(plain(g.kjEmail_(items(["a@example.com"]), { KJ_EMAIL: "bukan emel" })), { email: "a@example.com", source: "sheet" });
+  assert.deepEqual(plain(g.kjEmail_(items(["", ""]), {})), { email: "", source: "" });
+
+  const override = selesaiGas({}, { now: at("2026-12-08T18:31:00"), props: { WEBAPP_URL: WEBAPP, KJ_EMAIL: "pemangku@example.com" } });
+  override.ctx.deadlineCheck();
+  assert.deepEqual([override.rec.emails[0].to, override.rec.emails[0].cc], ["pemangku@example.com", SU]);
+
+  const nokj = selesaiGas({ kj: "" }, { now: at("2026-12-08T18:31:00") });
+  nokj.ctx.deadlineCheck();
+  const m = nokj.rec.emails[0];
+  assert.equal(m.to, SU);
+  assert.equal(m.cc, undefined);
+  assert.match(m.body, /^UNTUK SU: emel ini dihantar kepada anda sahaja kerana emel Ketua Jabatan belum ada\./);
+  assert.match(m.body, /Salam Tuan\/Puan Ketua Jabatan/);
+});
+
+test("a missing code is written before the D−2 email; email, calendar and digest carry the link; a changed code kills the old link", () => {
+  const gas = createGas({ rows: [HEADER, weekRow()], now: at("2026-12-05T07:10:00"), props: { WEBAPP_URL: WEBAPP } });
+  gas.ctx.dailyRun();
+  const code = cellOf(gas, 2, "Kod pengesahan");
+  assert.match(code, /^[0-9a-f]{32}$/, "Utilities.getUuid() without dashes");
+  const firstWrite = gas.rec.writes.findIndex((w) => w.value === code);
+  assert.ok(firstWrite >= 0);
+  const url = link(ID1, code);
+  const mail = officerMails(gas.rec)[0];
+  assert.equal(mail.body, expectBody("Pensyarah Ujian 1", WEEK1, "16:45", "17:15", paraLink("18:30", url)));
+  assert.equal(gas.rec.events[0].options.description, calDetails(paraLink("18:30", url)));
+  gas.setNow(at("2026-12-07T07:10:00"));
+  gas.ctx.dailyRun();
+  assert.equal(cellOf(gas, 2, "Kod pengesahan"), code, "code kept");
+  const dg = digests(gas.rec).pop();
+  const m = /https:\/\/wa\.me\/(\d+)\?text=(\S+)/.exec(dg.body);
+  assert.equal(decodeURIComponent(m[2]), expectWa("Pensyarah Ujian 1", "minggu ini", WEEK1, "16:45", paraLink("18:30", url)));
+  // the link works on a duty day ...
+  gas.setNow(at("2026-12-08T18:00:00"));
+  assert.match(gas.ctx.doGet({ parameter: { t: ID1, k: code } }).getContent(), /<form/);
+  // ... until the rota changes and the new CSV carries a new code for this turn
+  gas.setRows([HEADER, weekRow({ name: "Pensyarah Ujian 2", email: "ujian2@example.com", code: CODE1 })]);
+  assert.ok(gas.ctx.doGet({ parameter: { t: ID1, k: code } }).getContent().includes(INVALID));
+  assert.equal(gas.ctx.confirmLmo(ID1, code, TICKS).ok, false);
+  assert.equal(gas.ctx.confirmLmo(ID1, CODE1, TICKS).name, "Pensyarah Ujian 2");
+
+  // old 14-column CSV: the "Kod pengesahan" column is added
+  const old = createGas({ rows: [HEADER14, weekRow().slice(0, 14)], now: at("2026-12-05T07:10:00"), props: { WEBAPP_URL: WEBAPP } });
+  old.ctx.dailyRun();
+  assert.equal(old.sheet._data[0][14], "Kod pengesahan");
+  assert.match(old.sheet._data[1][14], /^[0-9a-f]{32}$/);
+  assert.ok(officerMails(old.rec)[0].body.includes(link(ID1, old.sheet._data[1][14])));
+});
+
+test("old 14-column CSV without the web app still works, with the SELESAI line and the 18:30 default", () => {
+  const gas = createGas({ rows: [HEADER14, weekRow({ from: "", to: "" }).slice(0, 14)], now: at("2026-12-05T07:10:00") });
+  gas.ctx.dailyRun();
+  const mail = officerMails(gas.rec)[0];
+  assert.equal(mail.body, expectBody("Pensyarah Ujian 1", WEEK1, "18:00", "18:15", NO_LINK));
+  assert.equal(gas.rec.events[0].start.toISOString(), "2026-12-07T10:00:00.000Z", "18:00 Malaysia time");
+  assert.equal(cellOf(gas, 2, "Kod pengesahan"), "", "no codes written without the web app");
+});
+
+test("missed evening: the KJ is alerted once the next morning '(semalam)'; not for Sunday, not when confirmed", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-09T07:10:00") });
+  gas.ctx.dailyRun();
+  const alerts = gas.rec.emails.filter((m) => m.to === KJ);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].subject, "Last Man Out 8/12/2026: Pensyarah Ujian 1 belum mengesahkan tugas (semalam)");
+  assert.equal(alerts[0].cc, SU);
+  assert.deepEqual(confRows(gas)[1].slice(0, 8), ["2026-12-08", ID1, "Pensyarah Ujian 1", "", "Tidak disahkan", "", "", "07:10 (9/12/2026)"]);
+  gas.setNow(at("2026-12-09T09:00:00"));
+  gas.ctx.dailyRun();
+  assert.equal(gas.rec.emails.filter((m) => m.to === KJ).length, 1, "once");
+  // Monday morning: yesterday was Sunday
+  const mon = selesaiGas({ start: "2026-12-14", end: "2026-12-18", id: "lmo-2026-12-14" }, { now: at("2026-12-14T07:10:00") });
+  mon.ctx.dailyRun();
+  assert.equal(mon.rec.emails.filter((m) => m.to === KJ).length, 0);
+  const ok = selesaiGas({}, { now: at("2026-12-09T07:10:00"), props: { WEBAPP_URL: WEBAPP, "conf|lmo-2026-12-07|2026-12-08": "18:10|Tepat masa" } });
+  ok.ctx.dailyRun();
+  assert.equal(ok.rec.emails.filter((m) => m.to === KJ).length, 0);
+  // the evening check already alerted: nothing in the morning
+  const done = selesaiGas({}, { now: at("2026-12-08T18:40:00") });
+  done.ctx.deadlineCheck();
+  done.setNow(at("2026-12-09T07:10:00"));
+  done.ctx.dailyRun();
+  assert.equal(done.rec.emails.filter((m) => m.to === KJ).length, 1);
+});
+
+test("turns that began before the web app URL was saved get no KJ alert (WEBAPP_SINCE)", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-08T18:40:00"), props: { WEBAPP_URL: WEBAPP, WEBAPP_SINCE: "2026-12-08" } });
+  gas.ctx.deadlineCheck();
+  assert.equal(gas.rec.emails.length, 0);
+  const next = selesaiGas({}, { now: at("2026-12-08T18:40:00"), props: { WEBAPP_URL: WEBAPP, WEBAPP_SINCE: "2026-12-07" } });
+  next.ctx.deadlineCheck();
+  assert.equal(next.rec.emails.length, 1);
+});
+
+test("menu functions do nothing without the Sheets UI (e.g. called through google.script.run from the web page)", () => {
+  const gas = selesaiGas({}, { now: at("2026-12-05T07:10:00"), noUi: true, triggers: [{ fn: "dailyRun" }], promptText: "orang@example.com" });
+  for (const fn of ["install", "uninstall", "runNow", "testRun", "sendTestToMe", "showWebAppUrl", "setKjEmail"]) {
+    assert.equal(gas.ctx[fn](), null, fn);
+  }
+  assert.equal(nothingWritten(gas.rec), 0);
+  assert.equal(gas.triggers.length, 1, "triggers untouched");
+});
+
+test("menu Pautan Selesai validates and stores the /exec URL and writes missing codes; menu Emel Ketua Jabatan sets, clears, rejects", () => {
+  const bad = createGas({ rows: [HEADER, weekRow()], promptText: "https://script.google.com/macros/s/AKfy/dev", now: at("2026-12-01T10:00:00") });
+  assert.equal(bad.ctx.showWebAppUrl(), null);
+  assert.equal(bad.store.WEBAPP_URL, undefined);
+  assert.match(bad.rec.alerts.pop().message, /URL tidak sah/);
+
+  const gas = createGas({ rows: [HEADER, weekRow(), weekRow({ id: "lmo-2026-12-14", start: "2026-12-14", end: "2026-12-18", code: CODE1 }), weekRow({ id: "lmo-2026-12-21", start: "2026-12-21", end: "2026-12-25", off: "Ya" })],
+    promptText: WEBAPP, now: at("2026-12-01T10:00:00") });
+  assert.equal(gas.ctx.showWebAppUrl(), WEBAPP);
+  assert.equal(gas.store.WEBAPP_URL, WEBAPP);
+  assert.equal(gas.store.WEBAPP_SINCE, "2026-12-01");
+  assert.match(cellOf(gas, 2, "Kod pengesahan"), /^[0-9a-f]{32}$/);
+  assert.equal(cellOf(gas, 3, "Kod pengesahan"), CODE1, "existing code kept");
+  assert.equal(cellOf(gas, 4, "Kod pengesahan"), "", "no code for a holiday row");
+  const msg = gas.rec.alerts.pop().message;
+  assert.ok(msg.includes(WEBAPP));
+  assert.match(msg, /1 kod pengesahan baharu/);
+
+  const detected = createGas({ rows: [HEADER, weekRow({ code: CODE1 })], promptText: "", serviceUrl: "https://script.google.com/a/macros/kptm.edu.my/s/AKfycbX/exec" });
+  assert.equal(detected.ctx.showWebAppUrl(), "https://script.google.com/a/macros/kptm.edu.my/s/AKfycbX/exec");
+
+  const kj = createGas({ rows: [HEADER, weekRow({ kj: KJ })], promptText: "pemangku@example.com" });
+  assert.equal(kj.ctx.setKjEmail(), "pemangku@example.com");
+  assert.equal(kj.store.KJ_EMAIL, "pemangku@example.com");
+  assert.match(kj.rec.prompts[0].message, /kj\.ujian@example\.com \(dari Sheet\)/);
+  const clear = createGas({ rows: [HEADER, weekRow({ kj: KJ })], promptText: "padam", props: { KJ_EMAIL: "pemangku@example.com" } });
+  clear.ctx.setKjEmail();
+  assert.equal(clear.store.KJ_EMAIL, undefined);
+  const wrong = createGas({ rows: [HEADER, weekRow({ kj: KJ })], promptText: "bukan emel" });
+  assert.equal(wrong.ctx.setKjEmail(), null);
+  assert.equal(wrong.rec.propWrites.length, 0);
+});
+
+test("Uji tanpa hantar accepts '8/12/2026 18:35' and lists the reminder / KJ alert it would send, sending nothing", () => {
+  const late = selesaiGas({}, { now: at("2026-11-30T10:00:00"), promptText: "8/12/2026 18:35" });
+  late.ctx.testRun();
+  const a = late.rec.alerts.pop();
+  assert.equal(a.title, "Uji tanpa hantar: Selasa, 8 Disember 2026 18:35");
+  assert.match(a.message, /Semakan butang Selesai pada 18:35:\n- Amaran kepada Ketua Jabatan \(kj\.ujian@example\.com, salinan kepada anda\): Pensyarah Ujian 1 belum mengesahkan tugas 8\/12\/2026/);
+  const soon = selesaiGas({}, { now: at("2026-11-30T10:00:00"), promptText: "8/12/2026 18:20" });
+  soon.ctx.testRun();
+  assert.match(soon.rec.alerts.pop().message, /- Peringatan Selesai kepada Pensyarah Ujian 1 \(ujian1@example\.com\): "Peringatan: tekan Selesai Last Man Out sebelum 18:30"/);
+  const nourl = createGas({ rows: [HEADER, weekRow()], now: at("2026-11-30T10:00:00"), promptText: "8/12/2026 18:35" });
+  nourl.ctx.testRun();
+  assert.match(nourl.rec.alerts.pop().message, /Butang Selesai belum aktif/);
+  for (const gas of [late, soon, nourl]) assert.equal(nothingWritten(gas.rec), 0);
+});
+
+test("sample CSV fixture: the 4 new columns are read (Had pengesahan, Kod pengesahan, Emel KJ, Hari tiada tugas)", () => {
+  const g = loadPure();
+  const items = g.parseRows_(parseCsv(fs.readFileSync(FIXTURE, "utf8")), g.CFG).items;
+  assert.deepEqual([items[0].timeFrom, items[0].timeTo, items[0].deadline], ["18:00", "18:15", "18:30"]);
+  assert.equal(items[0].code, "Q2u1aZ0b-Ujian_00001aa");
+  assert.deepEqual([...items[0].noDuty], ["2026-12-09"]);
+  assert.equal(g.kjEmail_(items, {}).email, KJ);
+  assert.ok(items.filter((r) => r.name && !r.off).every((r) => g.validCode_(r.code)), "every named turn has a code");
+  assert.equal(items[3].code, "", "holiday row has no code");
 });
 
 /* =================== Privacy =================== */

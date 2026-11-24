@@ -12,10 +12,16 @@
  *     Google Calendar kepada pegawai bertugas;
  *   - pada hari pertama giliran: menghantar emel kepada SU dengan pautan WhatsApp
  *     satu-sentuh (mesej siap ditulis; SU tekan Hantar sahaja).
+ * Butang Selesai (pilihan, apabila web app dipasang): pegawai menekan pautan peribadi dan
+ * menanda Selesai selepas tugas. Jika tiada pengesahan sebelum had (18:30), Ketua Jabatan
+ * dimaklumkan melalui emel (salinan kepada SU). Rekod dalam tab "Pengesahan".
  * Data staf kekal dalam akaun Google SU sahaja.
  *
- * Code notes (English): plain V8 Apps Script, no libraries. planActions_() is a pure
- * function (no Apps Script services) so it can be unit-tested in Node; see automation/test.
+ * Code notes (English): plain V8 Apps Script, no libraries. planActions_(), planConfirm_() and
+ * confirmState_() are pure (no Apps Script services) so they can be unit-tested in Node; see
+ * automation/test. Every public function can be called from the web app page through
+ * google.script.run, so menu functions do nothing unless the Sheets UI is present, and only
+ * confirmLmo() is meant for the page. Opening a link (doGet) never writes anything.
  */
 
 /* ===================== Tetapan (boleh diubah) ===================== */
@@ -30,9 +36,16 @@ var CFG = {
   WARN_DAYS: 7,                  // amaran awal kepada SU jika pegawai tiada emel: 7 hari sebelum giliran
   POPUP_MINUTES: 30,             // peringatan pop-up dalam kalendar SU
   MIN_QUOTA: 5,                  // berhenti menghantar emel jika baki kuota harian kurang daripada ini
-  TIME_FROM: "16:45",            // masa lalai jika lajur "Masa mula" kosong
-  TIME_TO: "17:15",              // masa lalai jika lajur "Masa tamat" kosong
-  KEEP_DAYS: 120                 // rekod "sudah dihantar" disimpan selama 120 hari
+  TIME_FROM: "18:00",            // masa lalai jika lajur "Masa mula" kosong
+  TIME_TO: "18:15",              // masa lalai jika lajur "Masa tamat" kosong
+  KEEP_DAYS: 120,                // rekod "sudah dihantar" disimpan selama 120 hari
+  // Butang Selesai dan amaran kepada Ketua Jabatan (perlu web app; lihat PANDUAN langkah 11)
+  CONFIRM: true,                 // false = tiada peringatan / amaran Selesai
+  DEADLINE: "18:30",             // had pengesahan lalai jika lajur "Had pengesahan" kosong
+  REMIND_BEFORE: 15,             // minit sebelum had: emel peringatan kepada pegawai (0 = tiada)
+  CONFIRM_FROM: "12:00",         // butang Selesai boleh ditekan mulai jam ini pada hari bertugas
+  CHECK_FROM: "17:00",           // semakan setiap CHECK_MINUTES minit bermula jam ini (hari bekerja)
+  CHECK_MINUTES: 10
 };
 /* ================================================================== */
 
@@ -46,6 +59,13 @@ var LMO_CHECKLIST = [
 ];
 var LMO_DAYS = ["Ahad", "Isnin", "Selasa", "Rabu", "Khamis", "Jumaat", "Sabtu"];
 var LMO_MONTHS = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"];
+var LMO_MIN_DEADLINE = "17:15";
+var LMO_CODE_RE = /^[A-Za-z0-9_-]{16,64}$/;
+var LMO_WEBAPP_RE = /^https:\/\/script\.google\.com\/(macros|a\/macros\/[a-z0-9.-]+)\/s\/[A-Za-z0-9_-]+\/exec$/;
+var CONF_SHEET = "Pengesahan";
+var CONF_HEAD = ["Tarikh", "ID", "Nama PIC", "Masa disahkan", "Status", "Senarai semak", "Peringatan PIC", "Amaran KJ", "Susulan KJ"];
+var CONF_CHECKLIST = "5/5: lampu, penyaman udara, suis/palam, pintu & tingkap, borang & masa keluar";
+var CONF_INVALID = "Pautan ini tidak sah atau telah dibatalkan (giliran mungkin telah ditukar). Sila hubungi Setiausaha Jabatan.";
 
 // Column headers (Contract 2), matched after trimming, removing the BOM and dots, lower-casing.
 // Column order in the Sheet does not matter.
@@ -64,11 +84,15 @@ var LMO_COLS = {
   emailSent: ["emel dihantar", "email sent"],
   calSent: ["kalendar dihantar", "calendar sent"],
   waSent: ["whatsapp dihantar", "whatsapp sent"],
+  deadline: ["had pengesahan", "confirm by", "confirmation deadline"],
+  code: ["kod pengesahan", "confirmation code"],
+  kjEmail: ["emel kj", "hod email", "head of department email"],
+  noDuty: ["hari tiada tugas", "no duty days"],
   eventId: ["id acara", "event id"],
   note: ["catatan skrip", "script note"]
 };
 // Columns the script writes; added on the right when missing.
-var LMO_WRITE_COLS = { emailSent: "Emel dihantar", calSent: "Kalendar dihantar", eventId: "ID acara", note: "Catatan skrip" };
+var LMO_WRITE_COLS = { emailSent: "Emel dihantar", calSent: "Kalendar dihantar", eventId: "ID acara", note: "Catatan skrip", code: "Kod pengesahan" };
 
 /* ============================ Menu ============================ */
 
@@ -79,14 +103,19 @@ function onOpen() {
     .addItem("Hantar emel ujian kepada saya", "sendTestToMe")
     .addItem("Jalankan sekarang", "runNow")
     .addSeparator()
+    .addItem("Pautan Selesai (web app)", "showWebAppUrl")
+    .addItem("Emel Ketua Jabatan", "setKjEmail")
+    .addSeparator()
     .addItem("Henti automatik", "uninstall")
     .addToUi();
 }
 
-/** Creates the daily trigger. Safe to run again: old dailyRun triggers are removed first. */
+/** Creates the two triggers (daily 7am run, and the Selesai check every 10 minutes). Safe to run again. */
 function install() {
+  if (!ui_()) return null;   // menu only (public functions can also be called from the web app page)
   removeTriggers_();
   ScriptApp.newTrigger("dailyRun").timeBased().everyDays(1).atHour(CFG.RUN_HOUR).inTimezone(CFG.TZ).create();
+  ScriptApp.newTrigger("deadlineCheck").timeBased().everyMinutes(CFG.CHECK_MINUTES).create();
   var sheet = findSheet_(), info = "";
   if (!sheet) info = "\n\nAMARAN: tab \"" + CFG.SHEET + "\" belum ada. Import CSV giliran dari planner ke tab itu.";
   else {
@@ -94,17 +123,24 @@ function install() {
     info = parsed.ok ? "\n\nTab \"" + sheet.getName() + "\": " + parsed.items.length + " giliran dijumpai."
       : "\n\nAMARAN: " + parsed.error;
   }
+  var url = PropertiesService.getScriptProperties().getProperty("WEBAPP_URL");
   alert_("Automatik dipasang",
     "Skrip akan berjalan setiap hari antara " + CFG.RUN_HOUR + " dan " + (CFG.RUN_HOUR + 1) + " pagi (waktu Malaysia).\n\n" +
     "2 hari sebelum setiap giliran: emel dan jemputan Google Calendar kepada pegawai.\n" +
-    "Hari pertama giliran: emel kepada anda dengan pautan WhatsApp." + info);
+    "Hari pertama giliran: emel kepada anda dengan pautan WhatsApp.\n" +
+    (CFG.CONFIRM && validWebUrl_(url)
+      ? "Butang Selesai: disemak setiap " + CFG.CHECK_MINUTES + " minit mulai " + CFG.CHECK_FROM + " pada hari bekerja."
+      : "Butang Selesai: belum aktif. Pilih menu \"Pautan Selesai (web app)\" selepas deploy web app (PANDUAN langkah 11).") + info);
+  return true;
 }
 
-/** Removes the daily trigger. Records of what was sent are kept, so installing again never resends. */
+/** Removes both triggers. Records of what was sent are kept, so installing again never resends. */
 function uninstall() {
+  if (!ui_()) return null;
   var n = removeTriggers_();
   alert_("Automatik dihentikan", n ? "Skrip tidak akan menghantar apa-apa lagi. Pilih \"Pasang (sekali sahaja)\" untuk mula semula."
     : "Automatik memang belum dipasang.");
+  return n;
 }
 
 /** Run by the daily trigger. */
@@ -115,51 +151,53 @@ function dailyRun() {
 /** Menu: run now (asks first). */
 function runNow() {
   var ui = ui_();
-  if (ui) {
-    var b = ui.alert("Jalankan sekarang",
-      "Hantar sekarang semua notis Last Man Out yang perlu dihantar hari ini? Notis yang sudah dihantar tidak akan dihantar semula.",
-      ui.ButtonSet.YES_NO);
-    if (b !== ui.Button.YES) return null;
-  }
+  if (!ui) return null;
+  var b = ui.alert("Jalankan sekarang",
+    "Hantar sekarang semua notis Last Man Out yang perlu dihantar hari ini? Notis yang sudah dihantar tidak akan dihantar semula.",
+    ui.ButtonSet.YES_NO);
+  if (b !== ui.Button.YES) return null;
   var r = runCore_({ dry: CFG.DRY_RUN });
   alert_("Last Man Out", summary_(r));
   return r;
 }
 
-/** Menu: dry run for a chosen date. Sends nothing and writes nothing. */
+/** Menu: dry run for a chosen date (and optional time, e.g. "5/12/2026 18:35"). Sends nothing and writes nothing. */
 function testRun() {
-  var ui = ui_(), today = todayIso_(now_()), day = today;
-  if (ui) {
-    var resp = ui.prompt("Uji tanpa hantar",
-      "Tarikh untuk diuji, cth. " + dmy_(addDays_(today, 1)) + " (kosongkan = hari ini).\nTiada emel atau jemputan akan dihantar.",
-      ui.ButtonSet.OK_CANCEL);
-    if (resp.getSelectedButton() !== ui.Button.OK) return null;
-    var txt = String(resp.getResponseText() || "").trim();
-    if (txt) {
-      day = parseDate_(txt);
-      if (!day) { alert_("Uji tanpa hantar", "Tarikh tidak difahami: \"" + txt + "\". Tulis seperti " + dmy_(today) + "."); return null; }
-    }
-  }
-  var r = runCore_({ dry: true, today: day });
-  alert_("Uji tanpa hantar: " + longDate_(day), r.plan ? describePlan_(r.plan) : summary_(r));
+  var ui = ui_(), now = now_(), today = todayIso_(now), day = today, time = "";
+  if (!ui) return null;
+  var resp = ui.prompt("Uji tanpa hantar",
+    "Tarikh untuk diuji, cth. " + dmy_(addDays_(today, 1)) + " (kosongkan = hari ini).\n" +
+    "Tambah masa untuk menguji butang Selesai, cth. " + dmy_(today) + " 18:35.\nTiada emel atau jemputan akan dihantar.",
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return null;
+  var when = parseWhen_(resp.getResponseText(), today);
+  if (!when) { alert_("Uji tanpa hantar", "Tarikh tidak difahami: \"" + String(resp.getResponseText()).trim() + "\". Tulis seperti " + dmy_(today) + " atau " + dmy_(today) + " 18:35."); return null; }
+  day = when.day; time = when.time;
+  var r = runCore_({ dry: true, today: day, time: time });
+  alert_("Uji tanpa hantar: " + longDate_(day) + (time ? " " + time : ""), r.plan ? describePlan_(r.plan) : summary_(r));
   return r;
 }
 
 /** Menu: sends the next turn's email, a calendar event and the duty-day email to the SU only. */
 function sendTestToMe() {
+  if (!ui_()) return null;
   var today = todayIso_(now_()), su = suEmail_(), sheet = findSheet_();
   if (!sheet) { alert_("Emel ujian", "Tab \"" + CFG.SHEET + "\" tidak dijumpai."); return null; }
-  var parsed = parseRows_(sheet.getDataRange().getDisplayValues(), CFG);
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var rows = confirmActive_(props, CFG) ? ensureCodes_(sheet) : sheet.getDataRange().getDisplayValues();
+  var parsed = parseRows_(rows, CFG);
   if (!parsed.ok) { alert_("Emel ujian", parsed.error); return null; }
+  withLinks_(parsed.items, props, CFG);
   var r = nextItem_(parsed.items, today);
   if (!r) { alert_("Emel ujian", "Tiada giliran akan datang dalam tab \"" + sheet.getName() + "\"."); return null; }
   if (MailApp.getRemainingDailyQuota() < 2) { alert_("Emel ujian", "Kuota emel harian akaun ini sudah habis. Cuba esok."); return null; }
   var sendDay = addDays_(r.start, -CFG.DAYS_BEFORE);
+  var linkNote = r.link ? "\n\nPautan Selesai dalam emel ini ialah pautan sebenar pegawai. Membukanya selamat, tetapi jangan tekan Selesai bagi pihak pegawai." : "";
   MailApp.sendEmail({
     to: su, name: CFG.SENDER_NAME,
     subject: "[UJIAN] " + mailSubject_(r),
     body: "INI EMEL UJIAN. Emel sebenar akan dihantar kepada " + r.name + " (" + (r.addr ? r.email : "tiada emel dalam Sheet") +
-      ") pada " + longDate_(sendDay) + ".\n\n----------\n\n" + mailBody_(r)
+      ") pada " + longDate_(sendDay) + "." + linkNote + "\n\n----------\n\n" + mailBody_(r)
   });
   createLmoEvent_(getCalendar_(), r, { title: "[UJIAN] " + calTitle_(r), guest: "" });
   var text = waText_(r);
@@ -175,10 +213,155 @@ function sendTestToMe() {
   return { item: r };
 }
 
+/** Menu: store (and show) the web app URL used in the personal Selesai links. */
+function showWebAppUrl() {
+  var ui = ui_();
+  if (!ui) return null;
+  var store = PropertiesService.getScriptProperties();
+  var cur = store.getProperty("WEBAPP_URL") || "", detected = "";
+  try { detected = ScriptApp.getService().getUrl() || ""; } catch (e) { detected = ""; }
+  if (!validWebUrl_(detected)) detected = "";
+  var url = validWebUrl_(cur) ? cur : detected;
+  var resp = ui.prompt("Pautan Selesai (web app)",
+    (url ? "URL sekarang:\n" + url + "\n\n" : "") +
+    "Tampal URL web app (bermula https://script.google.com/ dan berakhir dengan /exec).\n" +
+    (url ? "Kosongkan untuk kekalkan URL di atas." : "Belum ada URL: deploy web app dahulu (PANDUAN langkah 11)."),
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return null;
+  var txt = String(resp.getResponseText() || "").trim();
+  if (txt) url = txt;
+  if (!validWebUrl_(url)) {
+    alert_("Pautan Selesai", (url ? "URL tidak sah:\n" + url + "\n\n" : "") +
+      "URL mesti bermula https://script.google.com/ dan berakhir dengan /exec (bukan /dev). Salin dari Deploy > Urus deployment.");
+    return null;
+  }
+  store.setProperty("WEBAPP_URL", url);
+  // Turns that started before this URL existed had no link in their messages: no KJ alerts for them.
+  if (url !== cur) store.setProperty("WEBAPP_SINCE", todayIso_(now_()));
+  var sheet = findSheet_(), n = 0;
+  if (sheet && CFG.CONFIRM) {
+    var before = parseRows_(sheet.getDataRange().getDisplayValues(), CFG).items.filter(function (r) { return r.code; }).length;
+    var after = parseRows_(ensureCodes_(sheet), CFG).items.filter(function (r) { return r.code; }).length;
+    n = after - before;
+  }
+  alert_("Pautan Selesai disimpan",
+    "URL web app:\n" + url + "\n\n" + (n ? n + " kod pengesahan baharu ditulis dalam tab " + CFG.SHEET + ".\n\n" : "") +
+    "Langkah seterusnya (hari ini juga): dalam planner, Giliran Last Man Out > Tetapan giliran > URL web app Selesai: tampal URL ini, " +
+    "kemudian eksport CSV untuk Google Sheet dan import semula ke tab " + CFG.SHEET + "." +
+    (CFG.CONFIRM ? "" : "\n\nNota: CONFIRM ialah false dalam kod, jadi peringatan dan amaran Selesai tidak dihantar."));
+  return url;
+}
+
+/** Menu: override the Ketua Jabatan email (e.g. an acting KJ), or go back to the email in the Sheet. */
+function setKjEmail() {
+  var ui = ui_();
+  if (!ui) return null;
+  var store = PropertiesService.getScriptProperties(), cur = store.getProperty("KJ_EMAIL") || "";
+  var sheet = findSheet_();
+  var fromSheet = sheet ? kjEmail_(parseRows_(sheet.getDataRange().getDisplayValues(), CFG).items, {}).email : "";
+  var resp = ui.prompt("Emel Ketua Jabatan",
+    "Emel Ketua Jabatan sekarang: " + (validEmail_(cur) ? cur + " (ditetapkan di sini)" : fromSheet ? fromSheet + " (dari Sheet)" : "belum ada") + ".\n\n" +
+    "Tulis emel lain (contohnya pemangku Ketua Jabatan), atau tulis PADAM untuk kembali kepada emel dalam Sheet. Kosongkan untuk batal.",
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return null;
+  var txt = String(resp.getResponseText() || "").trim();
+  if (!txt) return null;
+  if (/^padam$/i.test(txt)) {
+    store.deleteProperty("KJ_EMAIL");
+    alert_("Emel Ketua Jabatan", "Emel yang ditetapkan di sini dipadam. Amaran akan dihantar kepada: " + (fromSheet || "anda sahaja (tiada emel KJ dalam Sheet)") + ".");
+    return "";
+  }
+  if (!validEmail_(txt)) { alert_("Emel Ketua Jabatan", "Emel tidak sah: " + txt); return null; }
+  store.setProperty("KJ_EMAIL", txt);
+  alert_("Emel Ketua Jabatan", "Amaran Selesai akan dihantar kepada " + txt + " (salinan kepada anda).");
+  return txt;
+}
+
+/** Trigger every 10 minutes: PIC reminder before the deadline, KJ alert after it, "Tiada tugas" record. */
+function deadlineCheck() {
+  if (!CFG.CONFIRM) return { skipped: "off" };
+  var store = PropertiesService.getScriptProperties();
+  if (!validWebUrl_(store.getProperty("WEBAPP_URL"))) return { skipped: "no-url" };
+  var now = now_(), today = todayIso_(now), hhmm = hhmm_(now), w = weekday_(today);
+  if (w === 0 || w === 6) return { skipped: "weekend" };
+  if (hhmm < CFG.CHECK_FROM) return { skipped: "early" };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return { busy: true };
+  try {
+    var sheet = findSheet_();
+    if (!sheet) return { error: "Tab \"" + CFG.SHEET + "\" tidak dijumpai." };
+    var parsed = parseRows_(ensureCodes_(sheet, CFG.DRY_RUN), CFG);
+    if (!parsed.ok) return { error: parsed.error };
+    var conf = planConfirm_(parsed.items, today, hhmm, store.getProperties(), CFG);
+    if (CFG.DRY_RUN) { Logger.log(describeConfirm_(conf).join("\n")); return { dry: true, conf: conf }; }
+    return { conf: conf, result: executeConfirm_(conf, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: suEmail_(), today: today, hhmm: hhmm }) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ===================== Web app: Selesai page ===================== */
+
+/** Opening a personal link. Read-only: never confirms, never writes, no lock. */
+function doGet(e) {
+  var p = (e && e.parameter) || {}, st;
+  var now = now_(), today = todayIso_(now), hhmm = hhmm_(now);
+  try {
+    var sheet = findSheet_();
+    var items = sheet ? parseRows_(sheet.getDataRange().getDisplayValues(), CFG).items : [];
+    var r = findConfirmRow_(items, p.t, p.k);
+    st = confirmState_(r, today, hhmm, PropertiesService.getScriptProperties().getProperties(), CFG);
+  } catch (err) {
+    Logger.log("Last Man Out doGet: " + errText_(err));
+    st = { state: "error", text: "Maaf, halaman ini tidak dapat dibuka sekarang. Sila cuba sebentar lagi atau hubungi Setiausaha Jabatan." };
+  }
+  return HtmlService.createHtmlOutput(confirmPage_(st, CFG))
+    .setTitle("Last Man Out: Pengesahan Selesai")
+    .addMetaTag("viewport", "width=device-width, initial-scale=1");
+}
+
+/** Called by the Selesai button (google.script.run). The only function that records a confirmation. */
+function confirmLmo(t, k, ticks) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(10000); } catch (e) { return { ok: false, text: "Sistem sibuk. Sila tekan Selesai sekali lagi." }; }
+  try {
+    var now = now_(), today = todayIso_(now), hhmm = hhmm_(now);
+    var store = PropertiesService.getScriptProperties(), props = store.getProperties();
+    var sheet = findSheet_();
+    var items = sheet ? parseRows_(sheet.getDataRange().getDisplayValues(), CFG).items : [];
+    var r = findConfirmRow_(items, t, k);
+    var st = confirmState_(r, today, hhmm, props, CFG);
+    if (st.state === "done") return { ok: true, already: true, status: st.status, time: st.time, name: r.name, text: confirmDoneText_(r.name, st.time, st.status) };
+    if (st.state !== "open") return { ok: false, state: st.state, text: st.text };
+    if (!allTicked_(ticks)) return { ok: false, state: "ticks", text: "Sila tanda kelima-lima perkara dalam senarai semak dahulu." };
+    var status = hhmm <= r.deadline ? "Tepat masa" : "Lewat";
+    var key = "|" + r.id + "|" + today;
+    store.setProperty("conf" + key, hhmm + "|" + status);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    upsertConfRow_(ss, store, today, r, { time: hhmm, status: status, checklist: CONF_CHECKLIST });
+    if (status === "Lewat" && props["kj" + key] && !props["kjlate" + key]) {
+      try {
+        var kj = kjEmail_(items, props), su = suEmail_(), m = kjLateMail_(r, today, props["kj" + key], hhmm);
+        if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
+        var mail = { to: kj.email || su, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
+        if (kj.email && su) mail.cc = su;
+        if (su) mail.replyTo = su;
+        MailApp.sendEmail(mail);
+        store.setProperty("kjlate" + key, hhmm);
+        upsertConfRow_(ss, store, today, r, { late: hhmm });
+      } catch (e2) { Logger.log("Last Man Out: susulan KJ tidak dihantar: " + errText_(e2)); }
+    }
+    return { ok: true, status: status, time: hhmm, name: r.name, text: confirmDoneText_(r.name, hhmm, status) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ======================== Run and execute ======================== */
 
 function now_() { return new Date(); }
 function todayIso_(d) { return Utilities.formatDate(d, CFG.TZ, "yyyy-MM-dd"); }
+function hhmm_(d) { return Utilities.formatDate(d, CFG.TZ, "HH:mm"); }
 
 function runCore_(opt) {
   opt = opt || {};
@@ -193,10 +376,23 @@ function runCore_(opt) {
       if (!opt.dry) reportBroken_(msg, today, store);
       return { error: msg };
     }
-    var plan = planActions_(sheet.getDataRange().getDisplayValues(), today, store.getProperties(), CFG);
-    if (opt.dry) { Logger.log(describePlan_(plan)); return { dry: true, plan: plan }; }
+    var props = store.getProperties(), active = confirmActive_(props, CFG);
+    // Personal Selesai codes are written before anything is sent, so every message carries a working link.
+    var rows = active ? ensureCodes_(sheet, !!opt.dry) : sheet.getDataRange().getDisplayValues();
+    var plan = planActions_(rows, today, props, CFG);
+    if (plan.ok && active) {
+      // A time (test run "5/12/2026 18:35") shows that evening's checks; otherwise this morning's catch-up for yesterday.
+      plan.confirm = opt.time ? planConfirm_(plan.items, today, opt.time, props, CFG)
+        : planConfirm_(plan.items, addDays_(today, -1), "23:59", props, CFG, true);
+    }
+    if (opt.dry) { plan.time = opt.time || ""; Logger.log(describePlan_(plan)); return { dry: true, plan: plan }; }
     if (!plan.ok) { reportBroken_(plan.error, today, store); return { plan: plan, error: plan.error }; }
-    var res = execute_(plan, { sheet: sheet, store: store, now: now, su: suEmail_() });
+    var su = suEmail_();
+    var res = execute_(plan, { sheet: sheet, store: store, now: now, su: su });
+    if (plan.confirm && plan.confirm.actions.length) {
+      // All of yesterday evening's checks failed (e.g. Google was down): alert the KJ once now.
+      res.catchUp = executeConfirm_(plan.confirm, { ss: SpreadsheetApp.getActiveSpreadsheet(), store: store, su: su, today: today, hhmm: hhmm_(now) });
+    }
     Logger.log(summary_({ plan: plan, result: res }));
     return { plan: plan, result: res };
   } finally {
@@ -281,7 +477,7 @@ function createLmoEvent_(cal, r, o) {
   var first = r.days[0];
   var s = Utilities.parseDate(first + " " + r.timeFrom, CFG.TZ, "yyyy-MM-dd HH:mm");
   var e = Utilities.parseDate(first + " " + r.timeTo, CFG.TZ, "yyyy-MM-dd HH:mm");
-  var opt = { description: calDetails_() };
+  var opt = { description: calDetails_(r) };
   if (o.guest) { opt.guests = o.guest; opt.sendInvites = true; }
   var ev;
   if (r.days.length > 1) {
@@ -355,9 +551,110 @@ function getCalendar_() {
 function removeTriggers_() {
   var n = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === "dailyRun") { ScriptApp.deleteTrigger(t); n++; }
+    var h = t.getHandlerFunction();
+    if (h === "dailyRun" || h === "deadlineCheck") { ScriptApp.deleteTrigger(t); n++; }
   });
   return n;
+}
+
+/**
+ * Writes a code (Utilities.getUuid without dashes) into every named, non-holiday row without a valid one,
+ * adding the "Kod pengesahan" column if needed. Returns the Sheet values with the codes in place.
+ * dryRun: fill the codes in memory only (nothing is written).
+ */
+function ensureCodes_(sheet, dryRun) {
+  var rows = sheet.getDataRange().getDisplayValues();
+  var h = findHeader_(rows);
+  if (!h) return rows;
+  var col = h.cols.code, width = 0, n = 0;
+  rows.forEach(function (r) { width = Math.max(width, r.length); });
+  for (var i = h.index + 1; i < rows.length; i++) {
+    var r = rows[i];
+    if (!cell_(r, h.cols, "name") || isYes_(cell_(r, h.cols, "off"))) continue;
+    if (col != null && validCode_(cell_(r, h.cols, "code"))) continue;
+    if (col == null) {
+      col = Math.max(width, dryRun ? 0 : sheet.getLastColumn());
+      if (!dryRun) writeCell_(sheet, h.index + 1, col, LMO_WRITE_COLS.code);
+      rows.forEach(function (x) { while (x.length <= col) x.push(""); });
+      rows[h.index][col] = LMO_WRITE_COLS.code;
+      h.cols.code = col;
+    }
+    var code = dryRun ? "kodsementara" + pad2_(Math.floor(n / 100)) + pad2_(n % 100) : Utilities.getUuid().replace(/-/g, "");
+    if (!dryRun) writeCell_(sheet, i + 1, col, code);
+    rows[i][col] = code;
+    n++;
+  }
+  return rows;
+}
+
+/** Sends PIC reminders and KJ alerts, writes the Pengesahan tab. Each action at most once per duty day. */
+function executeConfirm_(conf, env) {
+  var store = env.store, res = { sent: [], rows: [], errors: [] };
+  var stamp = env.hhmm + (conf.day !== env.today ? " (" + dmy_(env.today) + ")" : "");
+  conf.actions.forEach(function (a) {
+    try {
+      var r = a.item;
+      if (a.type === "remind") {
+        if (MailApp.getRemainingDailyQuota() < CFG.MIN_QUOTA) throw new Error("kuota emel harian hampir habis");
+        var rm = { to: a.to, subject: a.subject, body: a.body, name: CFG.SENDER_NAME };
+        if (env.su) rm.replyTo = env.su;
+        MailApp.sendEmail(rm);
+        store.setProperty(a.key, env.hhmm);
+        res.sent.push(a);
+      } else if (a.type === "kjalert") {
+        if (MailApp.getRemainingDailyQuota() < 1) throw new Error("kuota emel harian sudah habis");
+        var m = kjAlertMail_(r, a.day, a.catchUp, conf.kj.email);
+        var mail = { to: conf.kj.email || env.su, subject: m.subject, body: m.body, name: CFG.SENDER_NAME };
+        if (conf.kj.email && env.su) mail.cc = env.su;
+        if (env.su) mail.replyTo = env.su;
+        if (!mail.to) throw new Error("tiada penerima (emel Ketua Jabatan dan emel SU kosong)");
+        MailApp.sendEmail(mail);
+        store.setProperty(a.key, stamp);
+        res.sent.push(a);
+        res.rows.push(upsertConfRow_(env.ss, store, a.day, r, { status: "Tidak disahkan", kj: stamp }));
+      } else if (a.type === "noduty") {
+        res.rows.push(upsertConfRow_(env.ss, store, a.day, r, { status: "Tiada tugas" }));
+        store.setProperty(a.key, stamp);
+      }
+    } catch (e) {
+      res.errors.push({ action: a, message: errText_(e) });
+      Logger.log("Last Man Out: ralat " + a.type + " " + a.id + " " + a.day + ": " + errText_(e));
+    }
+  });
+  return res;
+}
+
+/** The "Pengesahan" tab (MQS evidence), created on first use with a frozen header row. */
+function confSheet_(ss) {
+  var sh = ss.getSheetByName(CONF_SHEET);
+  if (sh) return sh;
+  sh = ss.insertSheet(CONF_SHEET);
+  CONF_HEAD.forEach(function (t, i) { writeCell_(sh, 1, i, t); });
+  sh.setFrozenRows(1);
+  return sh;
+}
+
+/** One row per (Tarikh, ID): found by scanning, created if missing. All cells written as text. */
+function upsertConfRow_(ss, store, day, r, f) {
+  var sh = confSheet_(ss);
+  var vals = sh.getDataRange().getDisplayValues(), row = 0;
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]).trim() === day && String(vals[i][1]).trim() === r.id) { row = i + 1; break; }
+  }
+  if (!row) {
+    row = Math.max(vals.length, 1) + 1;
+    writeCell_(sh, row, 0, day);
+    writeCell_(sh, row, 1, r.id);
+    writeCell_(sh, row, 2, r.name);
+    var rem = store.getProperty("rem|" + r.id + "|" + day);
+    if (rem) writeCell_(sh, row, 6, rem);
+  }
+  if (f.time) writeCell_(sh, row, 3, f.time);
+  if (f.status) writeCell_(sh, row, 4, f.status);
+  if (f.checklist) writeCell_(sh, row, 5, f.checklist);
+  if (f.kj) writeCell_(sh, row, 7, f.kj);
+  if (f.late) writeCell_(sh, row, 8, f.late);
+  return row;
 }
 
 function suEmail_() {
@@ -396,6 +693,7 @@ function planActions_(rows, today, props, cfg) {
     width: parsed.width, items: parsed.items, actions: [], problems: []
   };
   if (!parsed.ok) return plan;
+  withLinks_(parsed.items, props, cfg);
   var seen = {};
   function problem(r, code, text) {
     var key = "warn|" + r.id + "|" + code;
@@ -453,10 +751,12 @@ function planActions_(rows, today, props, cfg) {
         }
         if (!sentBefore_(props, "cal", r, r.stamps.cal)) {
           plan.actions.push({ type: "cal", row: r.row, id: r.id, item: r, key: "cal|" + r.id + "|" + r.addr, guest: r.email,
-            title: calTitle_(r), description: calDetails_() });
+            title: calTitle_(r), description: calDetails_(r) });
         }
       }
       if (r.badTime) problem(r, "time", r.id + ": Masa mula/Masa tamat tidak difahami. Masa " + r.timeFrom + "–" + r.timeTo + " digunakan.");
+      if (r.badDeadline) problem(r, "deadline", r.id + ": Had pengesahan tidak sah (mesti selepas Masa tamat dan tidak lebih awal daripada " +
+        LMO_MIN_DEADLINE + "). Had " + r.deadline + " digunakan.");
     }
     // 3. Duty day: one-tap WhatsApp link for the SU.
     if (active) {
@@ -509,9 +809,13 @@ function parseRows_(rows, cfg) {
     tf = tf || cfg.TIME_FROM;
     tt = tt || cfg.TIME_TO;
     if (tt <= tf) { badTime = true; tf = cfg.TIME_FROM; tt = cfg.TIME_TO; }
-    var email = cell_(r, c, "email");
+    // Had pengesahan: HH:mm, not before Masa tamat and not before 17:15; otherwise the default (or Masa tamat if later).
+    var dlRaw = cell_(r, c, "deadline"), dl = parseTime_(dlRaw), badDeadline = false;
+    if (!dl || dl < tt || dl < LMO_MIN_DEADLINE) { badDeadline = !!dlRaw; dl = tt > cfg.DEADLINE ? tt : cfg.DEADLINE; }
+    var email = cell_(r, c, "email"), code = cell_(r, c, "code"), kj = cell_(r, c, "kjEmail");
     var days = valid ? workDays_(start, end) : [];
     if (valid && !days.length) days = [start];
+    var noDuty = splitDates_(cell_(r, c, "noDuty"));
     items.push({
       row: i + 1, id: id || (start ? "lmo-" + start : "baris-" + (i + 1)), start: start, end: end, rawStart: rawStart, rawEnd: rawEnd, valid: valid,
       timeFrom: tf, timeTo: tt, badTime: badTime,
@@ -519,6 +823,8 @@ function parseRows_(rows, cfg) {
       role: cell_(r, c, "role"), prog: cell_(r, c, "prog"), off: isYes_(cell_(r, c, "off")),
       stamps: { email: cell_(r, c, "emailSent"), cal: cell_(r, c, "calSent"), wa: cell_(r, c, "waSent") },
       eventId: cell_(r, c, "eventId"),
+      deadline: dl, badDeadline: badDeadline, code: validCode_(code) ? code : "", kjEmail: validEmail_(kj) ? kj : "",
+      noDuty: noDuty, dutyDays: days.filter(function (d) { return noDuty.indexOf(d) < 0; }),
       days: days, single: valid && start === end,
       contiguous: days.length <= 1 || isoToUTC_(days[days.length - 1]) - isoToUTC_(days[0]) === (days.length - 1) * 864e5,
       period: valid ? periodText_(start, end) : ""
@@ -653,32 +959,282 @@ function nextItem_(items, today) {
     .sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; })[0] || null;
 }
 
+/* ---------------- Selesai confirmation (pure) ---------------- */
+
+function validWebUrl_(u) { return LMO_WEBAPP_RE.test(String(u == null ? "" : u)); }
+function validCode_(k) { return LMO_CODE_RE.test(String(k == null ? "" : k)); }
+function confirmActive_(props, cfg) { return !!((cfg || CFG).CONFIRM && validWebUrl_((props || {}).WEBAPP_URL)); }
+
+/** Personal link (contract): {WEBAPP_URL}?t={ID}&k={code}. */
+function linkFor_(url, r) { return url + "?t=" + encodeURIComponent(r.id) + "&k=" + encodeURIComponent(r.code); }
+
+/** Adds r.link (personal Selesai link, or "") and r.confirmOn to each row. */
+function withLinks_(items, props, cfg) {
+  cfg = cfg || CFG;
+  var on = cfg.CONFIRM !== false, url = props && validWebUrl_(props.WEBAPP_URL) ? props.WEBAPP_URL : "";
+  (items || []).forEach(function (r) { r.confirmOn = on; r.link = on && url && r.code ? linkFor_(url, r) : ""; });
+  return items;
+}
+
+/** "2026-12-09;2026-12-10" -> ["2026-12-09", "2026-12-10"] (also accepts 9/12/2026, commas, spaces). */
+function splitDates_(v) {
+  var out = [];
+  String(v == null ? "" : v).split(/[;,\s]+/).forEach(function (x) {
+    var d = parseDate_(x);
+    if (d && out.indexOf(d) < 0) out.push(d);
+  });
+  return out;
+}
+
+function addMinutes_(hhmm, n) {
+  var p = hhmm.split(":"), t = (+p[0] * 60 + +p[1] + n + 1440) % 1440;
+  return pad2_(Math.floor(t / 60)) + ":" + pad2_(t % 60);
+}
+
+function allTicked_(ticks) {
+  if (!ticks || ticks.length !== LMO_CHECKLIST.length) return false;
+  for (var i = 0; i < ticks.length; i++) if (ticks[i] !== true) return false;
+  return true;
+}
+
+/** "5/12/2026", "5/12/2026 18:35", "18:35" (today) or "" (today) -> { day, time }; null when not understood. */
+function parseWhen_(txt, today) {
+  var s = String(txt == null ? "" : txt).trim(), time = "";
+  if (!s) return { day: today, time: "" };
+  var m = /^(?:(.*\S)\s+)?(\d{1,2}[:.]\d{2}(?::\d{2})?(?:\s*(?:[ap]\.?m\.?|pg|ptg))?)$/i.exec(s);
+  if (m) {
+    time = parseTime_(m[2]);
+    if (!time) return null;
+    s = m[1] || "";
+  }
+  var day = s ? parseDate_(s) : today;
+  return day ? { day: day, time: time } : null;
+}
+
+/** KJ email: KJ_EMAIL property, then the most common valid "Emel KJ" in the Sheet, then none. */
+function kjEmail_(items, props) {
+  if (props && validEmail_(String(props.KJ_EMAIL || "").trim())) return { email: String(props.KJ_EMAIL).trim(), source: "property" };
+  var count = {}, first = {}, best = "", n = 0;
+  (items || []).forEach(function (r) {
+    if (!r.kjEmail) return;
+    var k = r.kjEmail.toLowerCase();
+    count[k] = (count[k] || 0) + 1;
+    if (!(k in first)) first[k] = r.kjEmail;
+    if (count[k] > n) { n = count[k]; best = k; }
+  });
+  return best ? { email: first[best], source: "sheet" } : { email: "", source: "" };
+}
+
+/** The row a link points to: same ID and same (valid) code; otherwise null. */
+function findConfirmRow_(items, t, k) {
+  t = String(t == null ? "" : t);
+  k = String(k == null ? "" : k);
+  if (!t || !validCode_(k)) return null;
+  for (var i = 0; i < (items || []).length; i++) {
+    if (items[i].id === t) return items[i].code === k ? items[i] : null;
+  }
+  return null;
+}
+
+/**
+ * State of a personal link at a moment (pure): invalid | notToday | done | early | open.
+ * Never reveals a name for an invalid link.
+ */
+function confirmState_(r, today, hhmm, props, cfg) {
+  cfg = cfg || CFG;
+  props = props || {};
+  if (!r || !r.valid || r.off || !r.name || !r.code) return { state: "invalid", text: CONF_INVALID };
+  if ((r.dutyDays || []).indexOf(today) < 0) {
+    return { state: "notToday", r: r, date: today, text: "Tiada tugas Last Man Out untuk " + r.name + " hari ini. Giliran anda: " + r.period + "." };
+  }
+  var c = props["conf|" + r.id + "|" + today];
+  if (c) {
+    var p = String(c).split("|");
+    return { state: "done", r: r, date: today, time: p[0], status: p[1] || "", text: "\u2713 Sudah disahkan pada " + p[0] + " (" + (p[1] || "") + "). Terima kasih." };
+  }
+  if (hhmm < cfg.CONFIRM_FROM) {
+    return { state: "early", r: r, date: today, text: "Butang Selesai boleh ditekan mulai " + cfg.CONFIRM_FROM + " pada hari bertugas." };
+  }
+  return { state: "open", r: r, date: today };
+}
+
+function confirmDoneText_(name, time, status) {
+  return "\u2713 Terima kasih, " + name + ". Disahkan " + time + " (" + status + ").";
+}
+
+/**
+ * What the Selesai check does for one day at one time (pure).
+ * Actions: remind (PIC, REMIND_BEFORE minutes before the deadline), kjalert (at/after the deadline, KJ + SU cc),
+ * noduty (record "Tiada tugas" in the Pengesahan tab). Each once per duty day (rem| kj| noduty| properties).
+ */
+function planConfirm_(items, day, hhmm, props, cfg, catchUp) {
+  cfg = cfg || CFG;
+  props = props || {};
+  var out = { day: day, time: hhmm, catchUp: !!catchUp, actions: [], kj: kjEmail_(items, props) };
+  if (!confirmActive_(props, cfg)) return out;
+  withLinks_(items, props, cfg);
+  var since = props.WEBAPP_SINCE || "", seen = {};
+  (items || []).forEach(function (r) {
+    if (!r.valid || seen[r.id]) return;
+    seen[r.id] = true;
+    if (r.off || !r.name || !r.code || r.days.indexOf(day) < 0) return;
+    var key = "|" + r.id + "|" + day;
+    if (r.noDuty.indexOf(day) >= 0) {
+      if (hhmm >= r.deadline && !props["noduty" + key]) out.actions.push({ type: "noduty", id: r.id, day: day, item: r, key: "noduty" + key });
+      return;
+    }
+    if (since && r.start < since) return;        // turn began before the Selesai link existed: no link was sent
+    if (props["conf" + key]) return;
+    if (cfg.REMIND_BEFORE > 0 && !catchUp && hhmm >= addMinutes_(r.deadline, -cfg.REMIND_BEFORE) && hhmm < r.deadline &&
+        !props["rem" + key] && r.addr) {
+      var m = picReminderMail_(r, day);
+      out.actions.push({ type: "remind", id: r.id, day: day, item: r, key: "rem" + key, to: r.email, subject: m.subject, body: m.body });
+    }
+    if (hhmm >= r.deadline && !props["kj" + key]) out.actions.push({ type: "kjalert", id: r.id, day: day, item: r, key: "kj" + key, catchUp: !!catchUp });
+  });
+  return out;
+}
+
 /* ---------------- Message templates (BM, same wording as the planner) ---------------- */
 
 function lmoChecklist_() {
   return LMO_CHECKLIST.map(function (t, i) { return (i + 1) + ". " + t; }).join("\n");
 }
 
+/**
+ * Contract paragraph after the checklist: with the personal link when the web app is set up,
+ * otherwise "maklumkan SELESAI" to the SU. Left out only when CONFIRM is false.
+ */
+function confirmPara_(r) {
+  if (r.confirmOn === false) return "";
+  return r.link
+    ? "Selepas tugas selesai setiap hari bertugas, tekan pautan ini dan tanda Selesai sebelum " + r.deadline + ":\n" + r.link +
+      "\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan."
+    : "Selepas tugas selesai setiap hari bertugas, maklumkan SELESAI kepada Setiausaha Jabatan melalui WhatsApp atau emel sebelum " +
+      r.deadline + ". Jika tiada pengesahan, Ketua Jabatan akan dimaklumkan.";
+}
+
+function paraAfter_(r) { var p = confirmPara_(r); return p ? "\n\n" + p : ""; }
+
 function waText_(r) {
   return "Salam " + r.name + ",\n\nPeringatan: tuan/puan bertugas sebagai *Pegawai Last Man Out* " + (r.single ? "hari ini" : "minggu ini") +
-    " (" + r.period + ").\n\nSebelum pulang (sekitar " + r.timeFrom + "), sila pastikan:\n" + lmoChecklist_() + "\n\nTerima kasih.\n" + LMO_SIGNOFF;
+    " (" + r.period + ").\n\nSebelum pulang (sekitar " + r.timeFrom + "), sila pastikan:\n" + lmoChecklist_() + paraAfter_(r) +
+    "\n\nTerima kasih.\n" + LMO_SIGNOFF;
 }
 
 function mailSubject_(r) { return "Giliran Last Man Out (MQS): " + r.period; }
 
 function mailBody_(r) {
   return "Salam " + r.name + ",\n\nTuan/puan dijadualkan sebagai Pegawai Last Man Out (MQS) Jabatan JPPP pada " + r.period +
-    ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + r.timeFrom + "–" + r.timeTo + "):\n" + lmoChecklist_() +
+    ".\n\nSetiap hari bertugas, sebelum meninggalkan pejabat (sekitar " + r.timeFrom + "–" + r.timeTo + "):\n" + lmoChecklist_() + paraAfter_(r) +
     "\n\nJemputan Google Calendar turut dihantar. Jika tidak dapat bertugas (cuti/kursus), sila maklumkan saya segera supaya giliran boleh ditukar." +
     "\n\nTerima kasih.\n" + LMO_SIGNOFF;
 }
 
 function calTitle_(r) { return "Last Man Out (MQS): " + r.name; }
 
-function calDetails_() {
-  return "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + lmoChecklist_() +
+function calDetails_(r) {
+  return "Tugas Pegawai Last Man Out sebelum meninggalkan pejabat:\n" + lmoChecklist_() + (r ? paraAfter_(r) : "") +
     "\n\nJadual Bertugas Last Man Out, Jabatan JPPP, KPTM Kuantan (MQS).";
 }
+
+/** Email to the PIC REMIND_BEFORE minutes before the deadline (section 6). */
+function picReminderMail_(r, day) {
+  return {
+    subject: "Peringatan: tekan Selesai Last Man Out sebelum " + r.deadline,
+    body: "Salam " + r.name + ",\n\nTuan/puan bertugas sebagai Pegawai Last Man Out hari ini (" + longDate_(day) + "). Pengesahan belum diterima." +
+      "\n\nSelepas selesai, tekan pautan ini dan tanda Selesai sebelum " + r.deadline + ":\n" + r.link +
+      "\n\nJika tiada pengesahan, Ketua Jabatan akan dimaklumkan secara automatik.\n\nTerima kasih.\n" + LMO_SIGNOFF
+  };
+}
+
+function roleProg_(r) { return [r.role, r.prog].filter(function (x) { return x; }).join(" / "); }
+
+/** Email to the KJ (SU in cc) when the PIC has not confirmed by the deadline (section 6). */
+function kjAlertMail_(r, day, catchUp, kjAddr) {
+  var rp = roleProg_(r);
+  var body = "Salam Tuan/Puan Ketua Jabatan,\n\nUntuk makluman, Pegawai Last Man Out pada " + longDate_(day) + ", " + r.name +
+    (rp ? " (" + rp + ")" : "") + ", belum menekan Selesai bagi senarai semak Last Man Out (MQS) sehingga " + r.deadline + ".\n\n" +
+    lmoChecklist_() + (r.phone ? "\n\nHubungi pegawai: https://wa.me/" + r.phone : "") +
+    "\n\nJika pegawai mengesahkan selepas ini, emel susulan akan dihantar. Rekod: tab " + CONF_SHEET + ".\n\nEmel automatik, Setiausaha Jabatan JPPP.";
+  if (!kjAddr) {
+    body = "UNTUK SU: emel ini dihantar kepada anda sahaja kerana emel Ketua Jabatan belum ada. Isi emel Ketua Jabatan dalam planner " +
+      "(Kenalan pasukan, Jawatan: Ketua Jabatan) dan eksport semula CSV giliran, atau pilih menu Last Man Out > Emel Ketua Jabatan. " +
+      "Sementara itu, sila majukan emel ini kepada Ketua Jabatan.\n\n----------\n\n" + body;
+  }
+  return { subject: "Last Man Out " + dmy_(day) + ": " + r.name + " belum mengesahkan tugas" + (catchUp ? " (semalam)" : ""), body: body };
+}
+
+/** Follow-up to the KJ (SU in cc) when the PIC confirms after the alert (section 6). */
+function kjLateMail_(r, day, alertTime, time) {
+  return {
+    subject: "Last Man Out " + dmy_(day) + ": " + r.name + " telah mengesahkan (lewat)",
+    body: "Salam Tuan/Puan,\n\nSusulan emel " + alertTime + ": " + r.name + " telah menekan Selesai pada " + time + ", " + longDate_(day) +
+      ". Status: Lewat.\n\nTerima kasih."
+  };
+}
+
+/** The web page for a personal link (mobile-first, BM, accessible). Only the "open" state has a form. */
+function confirmPage_(st, cfg) {
+  cfg = cfg || CFG;
+  var r = st.r, body;
+  if (st.state === "open") {
+    var boxes = LMO_CHECKLIST.map(function (c, i) {
+      return "<label class=\"item\" for=\"c" + i + "\"><input type=\"checkbox\" id=\"c" + i + "\"><span>" + esc_(c) + "</span></label>";
+    }).join("");
+    var js = "(function(){var f=document.getElementById('f'),b=document.getElementById('b'),s=document.getElementById('s')," +
+      "x=f.querySelectorAll('input[type=checkbox]');" +
+      "function u(){var a=true;for(var i=0;i<x.length;i++)if(!x[i].checked)a=false;b.disabled=!a;}" +
+      "for(var i=0;i<x.length;i++)x[i].addEventListener('change',u);" +
+      "f.addEventListener('submit',function(ev){ev.preventDefault();if(b.disabled)return;var t=[];for(var i=0;i<x.length;i++)t.push(x[i].checked);" +
+      "b.disabled=true;s.className='status';s.textContent='Sedang menghantar\u2026';" +
+      "google.script.run.withSuccessHandler(function(res){if(res&&res.ok){f.hidden=true;s.className='status ok';s.textContent=res.text;s.focus();}" +
+      "else{s.className='status err';s.textContent=(res&&res.text)||'Tidak berjaya. Sila cuba lagi.';u();}})" +
+      ".withFailureHandler(function(){s.className='status err';s.textContent='Tidak dapat dihubungi. Semak internet dan tekan Selesai sekali lagi.';u();})" +
+      ".confirmLmo(" + jsStr_(r.id) + "," + jsStr_(r.code) + ",t);});})();";
+    body = "<p class=\"who\">Pegawai: <strong>" + esc_(r.name) + "</strong><br>Tarikh: " + esc_(longDate_(st.date)) + "</p>" +
+      "<form id=\"f\" novalidate><fieldset><legend>Senarai semak sebelum pulang</legend>" + boxes + "</fieldset>" +
+      "<p id=\"h1\" class=\"hint\">Tanda kelima-lima perkara untuk mengaktifkan butang.</p>" +
+      "<button type=\"submit\" id=\"b\" disabled aria-describedby=\"h1 h2\">Selesai / Done</button>" +
+      "<p id=\"h2\" class=\"hint\">Had pengesahan " + esc_(r.deadline) + ". Selepas had, pengesahan direkod sebagai Lewat.</p></form>" +
+      "<p id=\"s\" class=\"status\" role=\"status\" aria-live=\"polite\" tabindex=\"-1\"></p>" +
+      "<script>" + js + "</script>";
+  } else {
+    var cls = st.state === "done" ? "status ok" : st.state === "invalid" || st.state === "error" ? "status err" : "status";
+    body = "<p id=\"s\" class=\"" + cls + "\" role=\"status\" aria-live=\"polite\">" + esc_(st.text) + "</p>";
+  }
+  return "<!DOCTYPE html><html lang=\"ms\"><head><meta charset=\"utf-8\"><base target=\"_top\">" +
+    "<title>Last Man Out: Pengesahan Selesai</title><style>" + CONF_CSS + "</style></head><body><main>" +
+    "<h1>Last Man Out (MQS) \u2013 Pengesahan Selesai</h1><p class=\"sub\">Jabatan Pengurusan Perniagaan &amp; Perakaunan, KPTM Kuantan</p>" +
+    body + "</main></body></html>";
+}
+
+/** A JS string literal safe inside an inline <script>. */
+function jsStr_(v) { return JSON.stringify(String(v)).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026"); }
+
+var CONF_CSS = "*{box-sizing:border-box}" +
+  "body{margin:0;background:#f3f5f4;color:#1b1f1d;font:17px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}" +
+  "main{max-width:34rem;margin:0 auto;padding:16px}" +
+  "h1{font-size:1.3rem;line-height:1.3;margin:8px 0 4px}" +
+  ".sub{margin:0 0 16px;color:#47504c}" +
+  ".who,fieldset{background:#fff;border:1px solid #cfd6d2;border-radius:12px}" +
+  ".who{padding:12px 14px;margin:0}" +
+  "fieldset{margin:16px 0 8px;padding:4px 14px 6px}" +
+  "legend{font-weight:700;padding:0 4px}" +
+  ".item{display:flex;align-items:center;gap:12px;min-height:48px;padding:8px 0;border-bottom:1px solid #e4e9e6;cursor:pointer}" +
+  ".item:last-child{border-bottom:0}" +
+  ".item input{width:24px;height:24px;flex:none;margin:0;accent-color:#1d6b40}" +
+  "button{display:block;width:100%;min-height:52px;margin:8px 0;border:0;border-radius:12px;background:#1d6b40;color:#fff;" +
+  "font-family:inherit;font-size:1.1rem;font-weight:700;cursor:pointer}" +
+  "button:disabled{background:#cdd5d1;color:#3b4440;cursor:not-allowed}" +
+  ":focus-visible{outline:3px solid #1747c2;outline-offset:2px}" +
+  ".hint{color:#47504c;font-size:.95rem;margin:6px 0}" +
+  ".status{font-size:1.1rem;font-weight:600;margin:16px 0;min-height:1.5em}" +
+  ".ok{color:#1d6b40}.err{color:#a1261b}" +
+  "@media (prefers-color-scheme:dark){body{background:#111513;color:#e8ecea}.sub,.hint{color:#b5beba}" +
+  ".who,fieldset{background:#1a201d;border-color:#38423d}.item{border-color:#2c3531}" +
+  "button{background:#3fa06b;color:#0b0f0d}button:disabled{background:#3a433f;color:#c9d1cd}" +
+  ".ok{color:#7bd3a0}.err{color:#ff9d92}:focus-visible{outline-color:#8fb2ff}}";
 
 function waUrl_(phone, text) { return "https://wa.me/" + phone + "?text=" + encodeURIComponent(text); }
 
@@ -687,7 +1243,21 @@ function esc_(s) {
 }
 
 function actionLabel_(a) {
-  return { email: "emel", cal: "jemputan Google Calendar", delcal: "batal jemputan kalendar", wa: "pautan WhatsApp" }[a.type] || a.type;
+  return { email: "emel", cal: "jemputan Google Calendar", delcal: "batal jemputan kalendar", wa: "pautan WhatsApp",
+    remind: "peringatan Selesai", kjalert: "amaran Ketua Jabatan", noduty: "rekod Tiada tugas" }[a.type] || a.type;
+}
+
+/** Lines describing a Selesai plan (test run and log). */
+function describeConfirm_(conf) {
+  return conf.actions.map(function (a) {
+    var r = a.item;
+    if (a.type === "remind") return "- Peringatan Selesai kepada " + r.name + " (" + a.to + "): \"" + a.subject + "\"";
+    if (a.type === "kjalert") {
+      return "- Amaran kepada Ketua Jabatan (" + (conf.kj.email ? conf.kj.email + ", salinan kepada anda" : "tiada emel KJ: kepada anda sahaja") + "): " +
+        r.name + " belum mengesahkan tugas " + dmy_(a.day) + (a.catchUp ? " (semalam)" : "") + "; rekod \"Tidak disahkan\" dalam tab " + CONF_SHEET;
+    }
+    return "- Rekod \"Tiada tugas\" untuk " + r.name + " (" + dmy_(a.day) + ") dalam tab " + CONF_SHEET;
+  });
 }
 
 /**
@@ -777,6 +1347,13 @@ function describePlan_(plan) {
     else if (a.type === "wa") lines.push("- Emel kepada anda dengan pautan WhatsApp untuk " + r.name + (a.url ? "" : " (tiada No. WhatsApp; mesej untuk disalin)"));
   });
   var text = "Pada " + longDate_(plan.today) + " skrip akan:\n" + (lines.length ? lines.join("\n") : "- Tiada notis perlu dihantar.");
+  if (plan.confirm) {
+    var cl = describeConfirm_(plan.confirm);
+    text += "\n\n" + (plan.time ? "Semakan butang Selesai pada " + plan.time + ":\n" : "Susulan butang Selesai semalam (" + dmy_(plan.confirm.day) + "):\n") +
+      (cl.length ? cl.join("\n") : "- Tiada peringatan atau amaran.");
+  } else if (plan.time) {
+    text += "\n\nButang Selesai belum aktif: URL web app belum ditetapkan (menu Pautan Selesai) atau CONFIRM ialah false.";
+  }
   if (plan.problems.length) text += "\n\nPerlu tindakan anda:\n" + plan.problems.map(function (p) { return "- " + p.text; }).join("\n");
   if (!lines.length) {
     var next = nextItem_(plan.items, addDays_(plan.today, 1));
@@ -798,5 +1375,6 @@ function summary_(r) {
   if (o.wa.length) lines.push("Pautan WhatsApp untuk " + o.wa.map(function (a) { return a.item.name; }).join(", ") + (o.digestSent ? " telah diemel kepada anda." : " belum diemel."));
   if (o.problems.length || o.errors.length || o.quotaLow != null) lines.push("Ada perkara yang perlu tindakan anda; lihat emel ringkasan dan lajur \"Catatan skrip\".");
   if (o.digestError) lines.push("Emel ringkasan tidak dihantar: " + o.digestError);
+  if (o.catchUp && o.catchUp.sent.length) lines.push("Amaran Selesai semalam dihantar kepada Ketua Jabatan: " + o.catchUp.sent.length + ".");
   return lines.length ? lines.join("\n") : "Tiada notis perlu dihantar hari ini.";
 }

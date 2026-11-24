@@ -1,7 +1,7 @@
-﻿ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar
-lmo-2026-12-07,2026-12-07,2026-12-11,16:45,17:15,Pensyarah Ujian 1,ujian1@example.com,60120000001,Pensyarah,AA101,,,,
-lmo-2026-12-14,2026-12-14,2026-12-18,16:45,17:15,Pensyarah Ujian 2,ujian2@example.com,60120000002,Pensyarah,AA101,,,,
-lmo-2026-12-21,2026-12-21,2026-12-25,16:45,17:15,Ketua Program Ujian,,60120000003,Ketua Program,AB101,,,,
-lmo-2026-12-28,2026-12-28,2027-01-01,16:45,17:15,,,,,,Ya,,,
-lmo-2027-01-04,2027-01-04,2027-01-08,16:45,17:15,Pensyarah Ujian 3,ujian3@example.com,,Pensyarah,AB107,,,,
-lmo-2027-01-11,2027-01-11,2027-01-15,16:45,17:15,Setiausaha Ujian,su.ujian@example.com,60120000005,Setiausaha,,,,,
+﻿ID,Mula,Tamat,Masa mula,Masa tamat,Nama,Emel,No WhatsApp,Jawatan,Program,Cuti,Emel dihantar,Kalendar dihantar,WhatsApp dihantar,Had pengesahan,Kod pengesahan,Emel KJ,Hari tiada tugas
+lmo-2026-12-07,2026-12-07,2026-12-11,18:00,18:15,Pensyarah Ujian 1,ujian1@example.com,60120000001,Pensyarah,AA101,,,,,18:30,Q2u1aZ0b-Ujian_00001aa,kj.ujian@example.com,2026-12-09
+lmo-2026-12-14,2026-12-14,2026-12-18,18:00,18:15,Pensyarah Ujian 2,ujian2@example.com,60120000002,Pensyarah,AA101,,,,,18:30,Q2u1aZ0b-Ujian_00002bb,kj.ujian@example.com,
+lmo-2026-12-21,2026-12-21,2026-12-25,18:00,18:15,Ketua Program Ujian,,60120000003,Ketua Program,AB101,,,,,18:30,Q2u1aZ0b-Ujian_00003cc,kj.ujian@example.com,2026-12-25
+lmo-2026-12-28,2026-12-28,2027-01-01,18:00,18:15,,,,,,Ya,,,,18:30,,kj.ujian@example.com,
+lmo-2027-01-04,2027-01-04,2027-01-08,18:00,18:15,Pensyarah Ujian 3,ujian3@example.com,,Pensyarah,AB107,,,,,18:30,Q2u1aZ0b-Ujian_00004dd,kj.ujian@example.com,
+lmo-2027-01-11,2027-01-11,2027-01-15,18:00,18:15,Setiausaha Ujian,su.ujian@example.com,60120000005,Setiausaha,,,,,,18:30,Q2u1aZ0b-Ujian_00005ee,kj.ujian@example.com,
