@@ -1,32 +1,47 @@
-/* JPPP Smart Planner (Eisenhower Matrix): a decision coach, not just a list.
-   Plain JavaScript, no dependencies. Data stays in this browser (localStorage). */
+/* JPPP Smart Planner: after a meeting, record each action, tell the PIC in one tap and see who knows;
+   and run the Last Man Out (MQS) rota. Plain JavaScript, no dependencies.
+   Data stays in this browser (localStorage). */
 (function () {
   "use strict";
 
   /* ================================================================
      Constants
      ================================================================ */
-  var KEY = "eisenhower-planner:v1";          // current tasks (kept for backward compatibility)
-  var ARCHIVE_KEY = "eisenhower-planner:archive"; // finished / let-go tasks, used by Insight
+  var KEY = "eisenhower-planner:v1";          // tasks (key name kept from the first version of the app)
+  var ARCHIVE_KEY = "eisenhower-planner:archive"; // finished / deleted tasks, kept for 120 days
   var META_KEY = "eisenhower-planner:meta";
   var THEME_KEY = "eisenhower-planner:theme";
   var LANG_KEY = "eisenhower-planner:lang";
   var DAY = 86400000;
   var ARCHIVE_DAYS = 120;
+  var DONE_DAYS = 30;                          // "Siap" shows the last 30 days; older done tasks go to the archive
   var ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-  var QIDS = ["do", "schedule", "delegate", "delete"];
+  // Box names of the old four-box planner. Still written (field "q") so an older cached copy can read the data.
   var QSET = Object.create(null);
-  QIDS.forEach(function (q) { QSET[q] = true; });
+  ["do", "schedule", "delegate", "delete"].forEach(function (q) { QSET[q] = true; });
+  var ACK_VIA = { su: true, link: true, "old-status": true };   // how "PIC knows" was recorded ("link" = phase 2)
+  var SENT_VIA = { wa: true, email: true };
 
   var ICONS = {
     edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
     trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
-    chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5l1.3-3.8A8 8 0 1 1 8.4 18.6L4 19.5z"/><path d="M9 10.5h6M9 13.5h4"/></svg>',
-    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.4 18.6z"/><path d="M9 10c.4 2 2 3.6 4 4"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>',
     user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0M19 4v4M17 6h4"/></svg>',
-    cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
-    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+    person: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17M12 13.5v4M10 15.5h4"/></svg>',
+    calS: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3L10 14M21 3l-7 18-4-7-7-4z"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5M12 16.5h.01"/><path d="M10.3 3.9L2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+    help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" aria-hidden="true" class="row-chev"><path d="M9 6l6 6-6 6"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    door: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17"/><path d="M14 12h.01" stroke-width="3"/></svg>',
+    print: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3.5h10V9M7 17H4.5V10a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v7H17"/><rect x="7" y="14" width="10" height="6.5" rx="1"/></svg>',
+    gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.5M12 19v2.5M4.5 4.5l1.8 1.8M17.7 17.7l1.8 1.8M2.5 12H5M19 12h2.5M4.5 19.5l1.8-1.8M17.7 6.3l1.8-1.8"/></svg>'
   };
 
   // Link that opens Google Calendar with an all-day event already filled in (no login or server needed here)
@@ -37,7 +52,7 @@
     return "https://calendar.google.com/calendar/render?action=TEMPLATE" +
       "&text=" + encodeURIComponent(t.text) +
       "&dates=" + start + "/" + end +
-      "&details=" + encodeURIComponent(T(t.q === "delegate" ? "calDetailsDel" : "calDetails")) +
+      "&details=" + encodeURIComponent(T("calDetailsDel")) +
       (guestEmail ? "&add=" + encodeURIComponent(guestEmail) : "");
   }
   // Last Man Out duty as a timed Google Calendar event (Malaysia time); a weekly turn repeats on each working day
@@ -53,43 +68,111 @@
       (c && c.email ? "&add=" + encodeURIComponent(c.email) : "");
   }
 
+
   /* ================================================================
-     Text in two languages (BM / EN)
+     Text in two languages (BM / EN). Every key exists in both.
      ================================================================ */
   var I18N = {
     en: {
-      skip: "Skip to task box",
-      insight: "Insight", more: "More options", export: "Export backup", import: "Import backup",
-      loadSample: "Load sample week", install: "Install app", language: "Language", theme: "Switch light or dark theme",
-      h1: "What needs handling today?",
-      lede: "Sort department work by priority, delegate meeting actions to each PIC and send Last Man Out reminders on time. Answer two quick questions and the planner puts each task in the right box.",
-      placeholder: "Add a task, e.g. Circulate the meeting minutes tomorrow", newTask: "New task", add: "Add task",
-      qUrgent: "Is it urgent?", qImportant: "Is it important?", qOther: "Can someone else do it?",
-      whatUrgent: "What counts as urgent?", whatImportant: "What counts as important?",
-      tipUrgent: "Due within 48 hours, or someone is waiting on you.",
-      tipImportant: "It moves a real goal forward: studies, career, health, your students.",
-      yesUrgent: "Urgent", noUrgent: "Can wait", yesImportant: "Important", noImportant: "Not really",
-      yes: "Yes", no: "No, it's mine",
-      goesTo: "Goes to", answerFirst: "Answer the questions to place it",
-      needAnswers: "Answer the questions first, so the task lands in the right box.",
-      detected: function (w) { return "Found \u201c" + w + "\u201d, so it's marked urgent. Change it if that's wrong."; },
-      reviewReady: "Your weekly review is ready.", open: "Open", dismiss: "Dismiss",
-      progress: "Progress", progressBar: "Tasks completed",
-      progressText: function (d, n) { return "<strong>" + d + "</strong> of " + n + " tasks done"; },
-      progressNote: "(Delete box not counted)",
-      clearDone: "Clear completed",
-      starterText: "New here? Load a sample week to see how it works.",
-      axUrgent: "Urgent", axNotUrgent: "Not urgent", axImportant: "Important", axNotImportant: "Not important",
-      foot: "Your tasks stay in this browser only. Nothing is sent anywhere. Use Export to back them up.",
-      last7: "Last 7 days", insightTitle: "Where did my time go?", close: "Close", undo: "Undo",
-      moveTo: "Move to", moveLabel: "Move\u2026", editTask: "Edit task", deleteTask: "Delete task",
-      markDone: function (x) { return "Mark as done: " + x; },
-      dblEdit: "Double-click to edit", schedDate: "Scheduled date", delegatedTo: "Delegated to", whoPh: "Who handles it?",
+      skip: "Skip to content", navLabel: "Main navigation",
+      tabMeetings: "Meetings", tabLmo: "Last Man Out", tabMore: "More", tabDot: "Needs action today",
+      meetingsTitle: "Meeting tasks", newTask: "New task",
+      close: "Close", cancel: "Cancel", undo: "Undo", save: "Save", del: "Delete", optional: "(optional)",
+      fWhat: "What is the task?", fWhatPh: "e.g. Prepare the MQS audit report",
+      fWho: "Who is the PIC?", fWhoSearch: "Search contacts", fRecent: "Recent PICs",
+      fUseName: function (n) { return "Use “" + n + "”"; }, fUseNameSub: "New name",
+      fNotContact: "Not in contacts", fSaveContact: "Save as contact", fChange: "Change",
+      fContactSaved: function (n) { return n + " saved to contacts. Add a WhatsApp no. later so messages can be sent."; },
+      fWhen: "When is it due?", dToday: "Today", dTomorrow: "Tomorrow", dFri: "This Friday", dNextWeek: "Next week",
+      dPick: "Pick a date", dNone: "No date", dPickAria: "Pick the due date",
+      dateKw: { today: ["today"], tomorrow: ["tomorrow"], nextweek: ["next week"] },
+      errWhat: "Write what the task is.", errWho: "Choose a PIC.",
+      saveMore: "Save & add another",
+      savedUnsent: function (n) { return "Saved. " + n + " doesn't know yet."; }, savedNext: "Saved. Add the next task.", sendNow: "Send now",
+      gNoPic: "No PIC", gNoPicHelp: "Tasks from the earlier version of the planner. Choose a PIC for each one, or delete it.",
+      gUnsent: "Not told yet", gUnsentHelp: "The PIC doesn't know about these tasks yet.",
+      gWaiting: "Waiting for PIC", gWaitingHelp: "Message sent. Tap “Knows” when the PIC replies.",
+      gKnows: "PIC knows", gKnowsHelp: "Keep an eye on the due dates.",
+      gDone: "Done", gDoneHelp: "Last 30 days.",
+      nTasks: function (n) { return n + (n === 1 ? " task" : " tasks"); },
+      hlUnsent: function (n) { return n === 1 ? "1 PIC doesn't know their task yet" : n + " PICs don't know their tasks yet"; },
+      hlAllSent: "Everyone has been told", hlAllKnow: "Every PIC knows their tasks", hlEmpty: "No meeting tasks yet",
+      hlWaiting: function (n) { return n + " waiting for confirmation"; }, hlLate: function (n) { return n + " overdue"; },
+      hlNoLate: "Nothing overdue", hlNoPic: function (n) { return n + (n === 1 ? " task without a PIC" : " tasks without a PIC"); },
+      sendToN: function (n) { return "Send to " + n + (n === 1 ? " PIC" : " PICs"); },
+      knows: "Knows", knowsLong: "PIC knows",
+      knowsAria: function (n, x) { return "Knows: " + n + ", " + x; },
+      knowsHint: "Tap when the PIC replies to your message (e.g. “OK, noted”).",
+      knowsDone: function (n) { return "Marked: " + n + " knows."; },
+      allKnow: function (n) { return "Mark all as known (" + n + ")"; },
+      allKnowDone: function (n, who) { return n + (n === 1 ? " task" : " tasks") + " marked: " + who + " knows."; },
+      ackBySu: "Marked by you", ackByLink: "The PIC confirmed by link", ackByOld: "From the old status",
+      statusH: "Status", stepRecorded: "Recorded", stepTell: "Tell the PIC", stepTold: "Told", stepAck: "PIC confirmed", stepDone: "Done",
+      stepPick: "Choose the PIC", stepDoneSr: "(done)",
+      tellHint: function (n) { return "Choose how to tell " + n + "."; },
+      notConfirmed: function (x) { return "Not confirmed. Sent " + x + "."; },
+      noReply: function (n) { return "No reply after " + n + (n === 1 ? " working day." : " working days."); }, remindLead: "Send a reminder:",
+      lateN: function (n) { return n + (n === 1 ? " day overdue" : " days overdue"); },
+      lateBanner: function (n, d) { return n + (n === 1 ? " day overdue" : " days overdue") + ". Due " + d + "."; },
+      dueOn: function (d) { return "Due " + d; }, dueToday: "Due today", dueTomorrow: "Due tomorrow", dueLabel: "Due date",
+      pillToday: "Today", pillTomorrow: "Tomorrow",
+      sentAgo: function (x) { return "Sent " + x; }, doneOn: function (d) { return "Done " + d; },
+      viaWa: "WhatsApp", viaEmail: "Email", viaOther: "Message",
+      clock: function (h, m) { return (h % 12 || 12) + ":" + m + (h < 12 ? " am" : " pm"); },
+      btnWa: "WhatsApp", btnEmail: "Email", remindWa: "WhatsApp reminder", remindEmail: "Email reminder",
+      resend: "Send again", seeMsg: "See message", inviteCal: "Invite in Google Calendar", askOrRemind: "Ask for status / reminder", remindLate: "Send a reminder",
+      markDone: "Mark done", reopen: "Reopen", doneToast: "Task marked done.", reopened: "Task reopened.",
+      needHelp: "Needs help", needHelpSub: "The PIC asked for help or is blocked",
+      noPic: "No PIC", noPhone: "No WhatsApp no.", noEmail: "No email",
+      pickPic: "Choose PIC", pickPicTitle: "Choose the PIC", picSet: function (n) { return "PIC: " + n; },
+      delTask: "Delete task", delConfirmTitle: "Delete this task?",
+      delConfirm: function (x) { return "“" + x + "” will be deleted. It can't be brought back (except from a backup)."; },
+      taskDeleted: "Task deleted",
+      editText: "Edit the task text", editSave: "Save text", textSaved: "Task text saved.",
+      taskEyebrow: "Meeting task",
+      sendSheetEyebrow: "One message per person", sendTitle: "Send to PICs",
+      msgTitle: "Message title", msgTitlePh: "e.g. Department Meeting 4/2026",
+      sentProgress: function (a, b) { return a + " of " + b + (b === 1 ? " person sent" : " people sent"); }, progressAria: "Sending progress",
+      sentCard: function (c, t) { return "Sent by " + c + ", " + t; }, sentPill: "Sent", notYet: "Not yet", finish: "Done",
+      sentMarked: function (c, n, k) { return c + " opened for " + n + ". " + k + (k === 1 ? " task" : " tasks") + " marked as told."; },
+      sentOne: function (c, n) { return c + " opened for " + n + ". Marked as told."; },
+      noneToSend: "No new tasks to send. Every PIC has been told.",
+      tasksOpen: function (n) { return n + (n === 1 ? " open task" : " open tasks"); },
+      waitingN: function (n) { return n + " waiting to confirm"; },
+      askStatusHint: function (n) { return "One message listing " + n + "'s open tasks. They reply with a letter: A = Not started, B = In progress, C = Done, D = Need help."; },
+      askSent: function (n) { return "Status request opened for " + n + "."; },
+      contactEyebrow: "Contact",
+      lmoNoticeTitle: function (n) { return "Last Man Out this week: " + n; }, lmoNoticeWa: "Send the WhatsApp reminder today.",
+      lmoSeeAll: "Open Last Man Out",
+      lmoTabSub: "Office closing rota (MQS)",
+      lmoThisWeek: function (p) { return "This week · " + p; }, lmoNextTurn: function (p) { return "Next turn · " + p; },
+      lmoDutyTime: function (a, b) { return "on duty " + a + "–" + b; },
+      lmoEmailCal: "Email & calendar invitation",
+      lmoAutoOn: function (d) { return "Sent automatically by Google Apps Script on " + d; },
+      lmoSentOn: function (d) { return "Sent " + d; }, lmoToSendNow: "To send now", lmoToSendOn: function (d) { return "To send on " + d; },
+      lmoWaLine: "WhatsApp reminder", lmoWaToday: "To send today",
+      lmoConfirmTitle: "Done confirmation",
+      lmoConfirmAuto: function (had) { return "The officer presses Done after the duty each evening (deadline " + had + "). If not, the Head of Department is told automatically."; },
+      lmoConfirmManual: function (had) { return "The officer tells you SELESAI after the duty each evening (deadline " + had + "). If not, the planner asks you to tell the Head of Department."; },
+      lmoDaysAria: "Duty days", dayStToday: "Today", dayStOk: "Done", dayStOff: "No duty", dayStPending: "Not confirmed", dayStKj: "HoD told",
+      lmoUpcoming: "Coming up", lmoEmailAuto: function (d) { return "Automatic email " + d; }, lmoEmailOn: function (d) { return "Email " + d; },
+      lmoManage: "Manage rota", lmoNeedAct: "Needs action",
+      lmoAutoNote: "Automatic via Google Apps Script: email, calendar invitation, Done button and alerts to the Head of Department.",
+      lmoManualNote: "Without the Google Apps Script, send the email, calendar invitation and WhatsApp yourself from this page. The Guide explains how to make it automatic.",
+      lmoEmpty: "No rota yet. Import the staff list in Team contacts, then create the rota in Manage rota.",
+      lmoNoMore: "No later turns yet. Add a round in Manage rota.",
+      moreTitle: "More", moreSub: "Settings and tools", mPeople: "People", mBackup: "Backup",
+      mBackupSave: "Save a backup", mBackupSaveSub: "Download all tasks, contacts and the rota",
+      mBackupLoad: "Restore a backup", mBackupLoadSub: "From another phone or an old backup",
+      mDisplay: "Display", mLang: "Language", mTheme: "Theme", themeLight: "Light", themeDark: "Dark", themeAuto: "Auto",
+      mApp: "App", install: "Install app", mInstallSub: "Open it from your home screen",
+      mGuide: "Guide", mGuideSub: "Last Man Out automation, in Bahasa Melayu",
+      foot: "Everything stays on this device. Nothing is sent anywhere. Use Save a backup to keep a copy.",
+      backupSaved: "Backup file downloaded. Keep it in Google Drive or email it to yourself.",
+      emptyTasks: "No tasks yet. After a meeting, tap “New task”.", trySample: "Try with an example",
       addToCal: function (x) { return "Add to Google Calendar: " + x; },
-      calDetails: "Planned in the Schedule box of JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
       calDetailsDel: "Task assigned via JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
-      fromSchedule: "From Schedule", onlyYou: "Only you", overdue: "Overdue",
-      dueDate: "Due date", notified: "Notified", saveContact: "Save contact",
+      saveContact: "Save contact",
       waAria: function (n, x) { return "Send on WhatsApp to " + n + ": " + x; },
       mailAria: function (n, x) { return "Send email to " + n + ": " + x; },
       msgSubject: function (x) { return "Task for your action: " + x; },
@@ -98,7 +181,7 @@
           (due ? "\nDue: " + due : "") + (cal ? "\n\nAdd it to Google Calendar:\n" + cal : "") + "\n\nThank you.";
       },
       contacts: "Team contacts",
-      contactsNote: "Saved on this device only. Never uploaded anywhere. Included in Export backup.",
+      contactsNote: "Saved on this device only. Never uploaded anywhere. Included in Save a backup.",
       cName: "Name", cPhone: "WhatsApp no.", cEmail: "Email", cSave: "Save", cUpdate: "Update", cCancel: "Cancel",
       cImport: "Import CSV", cTemplate: "CSV template", cExport: "Export CSV", cSearch: "Search contacts",
       cCsvHelp: "CSV columns: Name, WhatsApp no., Email, Role, Programme, LMO rota (Yes/No). Only the name is required. Save from Excel or Google Sheets as .csv.",
@@ -110,32 +193,13 @@
       cDelete: function (n) { return "Delete " + n + " from contacts?"; },
       cSaved: function (n) { return n + " saved"; }, cEdit: "Edit", cDel: "Delete",
       cCount: function (n) { return n + (n === 1 ? " contact" : " contacts"); },
-      sendByPic: "Send to each PIC", sendTitle: "Send tasks by PIC",
-      sendNote: "One message per person with all their open tasks. Good for meeting minutes.",
-      meetingLabel: "From (optional)", meetingPh: "e.g. JPPP Department Meeting 3/2026",
-      onlyNew: "Only tasks not yet notified",
-      noPics: "No open Delegate tasks with a PIC yet.",
-      notSaved: "Not in contacts yet",
-      sentAll: function (n) { return "Marked " + n + (n === 1 ? " task" : " tasks") + " as notified"; },
-      nOpen: function (n) { return n + (n === 1 ? " open task" : " open tasks"); },
       groupBody: function (name, from, lines) {
         return "Hi " + name + ",\n\n" + (from ? "Action items from " + from + ":" : "Tasks for your action:") + "\n\n" + lines + "\n\nThank you.";
       },
       groupSubject: function (from, n) { return (from ? from + ": " : "") + n + (n === 1 ? " task" : " tasks") + " for your action"; },
+      nOpen: function (n) { return n + (n === 1 ? " open task" : " open tasks"); },
       dueShort: "Due",
-      monitor: "Monitor", monitorTitle: "Project monitor", monitorEyebrow: "Delegated tasks",
-      stNone: "Not started", stDoing: "In progress", stBlocked: "Needs help", stDone: "Done", statusLabel: "Status",
-      noteLabel: "Status note", notePh: "Latest update…",
-      mActive: "Open", mDoneRate: "Done", mOverdue: "Overdue", mSoon: "Due today/tomorrow", mStale: "No update 5+ days",
-      mActiveHelp: "delegated tasks", mDoneHelp: "of all delegated", mStaleHelp: "notified, no news",
-      needRemind: "Needs a reminder", byPic: "By person in charge", nothingDue: "Nothing due today or tomorrow. All clear.",
-      noDelegated: "No delegated tasks yet. Put a task in Delegate, choose a PIC and set a due date.",
-      remind: "Reminder", askStatus: "Ask for status", remindedToday: "Reminded today",
-      askedOn: function (d) { return "Status asked " + d; }, updatedAgo: function (d) { return "Updated " + d; },
-      never: "No update yet", todayW: "today", yesterdayW: "yesterday", daysAgo: function (n) { return n + " days ago"; },
-      dueWhen: function (n) { return n < 0 ? (-n === 1 ? "1 day overdue" : -n + " days overdue") : n === 0 ? "Due today" : n === 1 ? "Due tomorrow" : "Due in " + n + " days"; },
-      remindBanner: function (n) { return n + (n === 1 ? " delegated task is" : " delegated tasks are") + " due tomorrow or overdue."; },
-      sendReminders: "Send reminders",
+      todayW: "today", yesterdayW: "yesterday", daysAgo: function (n) { return n + " days ago"; },
       remindMsg: function (name, text, n, date) {
         var when = n < 0 ? "was due on " + date + " (" + (-n) + (n === -1 ? " day" : " days") + " ago)" : n === 0 ? "is due today (" + date + ")" : n === 1 ? "is due tomorrow (" + date + ")" : "is due on " + date;
         return "Hi " + name + ",\n\nA friendly reminder: *" + text + "* " + when + ".\n\nCould you share the latest status? Thank you.";
@@ -144,21 +208,11 @@
         return "Hi " + name + ",\n\nCould you share the status of these tasks?\n\n" + lines +
           "\n\nReply with the task number and a letter:\nA = Not started, B = In progress, C = Done, D = Need help\nExample: 1C, 2B\n\nThank you.";
       },
-      remindSubject: function (x) { return "Reminder: " + x; }, askSubject: "Task status update",
-      progressOf: function (d, n) { return d + " of " + n + " done"; },
-      deleteAll: "Delete all", clearN: function (n) { return "Clear " + n + " done"; },
-      nTasks: function (n) { return n + (n === 1 ? " task" : " tasks"); },
-      taskDeleted: "Task deleted", tasksDeleted: function (n) { return n + " tasks deleted"; },
-      tasksCleared: function (n) { return n + " tasks cleared"; },
-      addedTo: function (q) { return "Added to " + q; }, movedTo: function (q) { return "Moved to " + q; },
-      promoted: function (n) { return n === 1 ? "1 scheduled task is due today, so it moved to Do." : n + " scheduled tasks are due, so they moved to Do."; },
+      remindSubject: function (x) { return "Reminder: " + x; }, askSubject: "Task status update", askStatus: "Ask for status",
       imported: function (n) { return n + " tasks imported"; }, badFile: "That file is not a planner backup",
-      saveFail: "Could not save. Export a backup now.",
-      confirmSample: "Replace your current tasks with the sample week? A copy of your tasks is kept, and Export still works.",
-      sampleLoaded: "Sample week loaded. Open Insight to see the review.",
-      packLmo: "Add pack: Last Man Out (MQS)",
-      packAdded: function (n) { return n + " Last Man Out (MQS) tasks added. Fill in the PIC in Delegate."; },
-      packExists: "The Last Man Out (MQS) tasks are already in your planner.",
+      saveFail: "Could not save. Save a backup now (More).",
+      confirmSample: "Replace your current tasks with the example? A copy of your tasks is kept, and Save a backup still works.",
+      sampleLoaded: "Example loaded, with example contacts. Delete them when you no longer need them.",
       brandSub: "Department Secretary · KPTM Kuantan",
       cRole: "Role", cProg: "Programme", cProgPh: "e.g. AA101", cRotaCol: "LMO rota", cYes: "Yes", cNo: "No",
       cRoles: ["Head of Department", "Secretary", "Programme Coordinator", "Lecturer"],
@@ -255,64 +309,109 @@
       kjMarked: function (pic, d) { return "Marked done: " + pic + ", " + d; },
       kjWa: "WhatsApp HoD", kjEmail: "Email HoD", kjAdd: "Add Head of Department contact",
       kjTold: function (pic, d) { return "Head of Department told about " + pic + ", " + d; },
-      q: {
-        "do":       { title: "Do",       sub: "Urgent and important",         hint: "Finish these first.",       empty: "Nothing here yet. Urgent + important tasks land here." },
-        "schedule": { title: "Schedule", sub: "Important, not urgent",        hint: "Give each one a date.",     empty: "Add what moves you forward: study, health, planning." },
-        "delegate": { title: "Delegate", sub: "Urgent, not important",        hint: "Write who will handle it.", empty: "Nothing to hand over yet." },
-        "delete":   { title: "Delete",   sub: "Neither urgent nor important", hint: "Let these go on purpose.",  empty: "Nothing to drop." }
-      },
-      ins: {
-        finished: "Finished", planned: "Planned", reactive: "Reactive", letGo: "Let go",
-        plannedHelp: "from Schedule", reactiveHelp: "Do + Delegate", letGoHelp: "dropped on purpose",
-        mix: "What you finished, by box", perDay: "Finished per day", whatItMeans: "What this means",
-        balance: "Balance score", vsLast: function (d) { return d === 0 ? "same as the week before" : (d > 0 ? "+" + d : d) + " points vs the week before"; },
-        noData: "No finished tasks in the last 7 days yet. Tick tasks as done and come back here at the end of the week.",
-        reactiveHigh: function (p) { return p + "% of your finished work was urgent. Try to protect two time slots this week for Schedule tasks."; },
-        reactiveMid: function (p) { return p + "% of your finished work was urgent. You're close to a healthy balance; one more planned task a day would tip it."; },
-        plannedGood: function (p) { return p + "% of your finished work was planned ahead. That's the work that moves you forward. Keep it up."; },
-        promotedN: function (n) { return n + (n === 1 ? " task" : " tasks") + " moved from Schedule to Do because the date arrived. Starting earlier keeps them out of the red box."; },
-        droppedN: function (n) { return "You let go of " + n + (n === 1 ? " task" : " tasks") + " on purpose. That's " + n + (n === 1 ? " decision" : " decisions") + ", not failures."; },
-        onlyYouN: function (n) { return n + " urgent " + (n === 1 ? "task" : "tasks") + " could only be done by you. If this keeps happening, agree on deadlines earlier."; },
-        noDateN: function (n) { return n + " Schedule " + (n === 1 ? "task has" : "tasks have") + " no date yet. Give each one a day so it doesn't become urgent."; },
-        plan: "Plan next week", balanceHelp: "Share of finished work that was planned (Schedule). Higher is better."
-      },
       days: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-      locale: "en-MY",
-      kw: ["today", "tonight", "tomorrow", "asap", "urgent", "deadline", "due", "now", "this morning", "this afternoon"]
+      locale: "en-MY"
     },
     ms: {
-      skip: "Langkau ke kotak tugasan",
-      insight: "Analisis", more: "Pilihan lain", export: "Eksport sandaran", import: "Import sandaran",
-      loadSample: "Muat minggu contoh", install: "Pasang aplikasi", language: "Bahasa", theme: "Tukar tema cerah atau gelap",
-      h1: "Apa yang perlu diurus hari ini?",
-      lede: "Susun kerja jabatan ikut keutamaan, agihkan tindakan mesyuarat kepada setiap PIC dan hantar peringatan Last Man Out tepat pada masanya. Jawab dua soalan ringkas, dan planner akan letakkan setiap tugasan dalam kotak yang betul.",
-      placeholder: "Tambah tugasan, cth. Edarkan minit mesyuarat esok", newTask: "Tugasan baharu", add: "Tambah",
-      qUrgent: "Adakah ia segera?", qImportant: "Adakah ia penting?", qOther: "Boleh orang lain buat?",
-      whatUrgent: "Apa maksud segera?", whatImportant: "Apa maksud penting?",
-      tipUrgent: "Perlu siap dalam 48 jam, atau ada orang sedang menunggu anda.",
-      tipImportant: "Ia membawa matlamat sebenar ke hadapan: pelajaran, kerjaya, kesihatan, pelajar anda.",
-      yesUrgent: "Segera", noUrgent: "Boleh tunggu", yesImportant: "Penting", noImportant: "Tidak sangat",
-      yes: "Ya", no: "Tidak, tugas saya",
-      goesTo: "Masuk ke", answerFirst: "Jawab soalan untuk tentukan kotak",
-      needAnswers: "Jawab soalan dahulu supaya tugasan masuk ke kotak yang betul.",
-      detected: function (w) { return "Jumpa \u201c" + w + "\u201d, jadi ia ditanda segera. Tukar jika tidak tepat."; },
-      reviewReady: "Ulasan mingguan anda sudah sedia.", open: "Buka", dismiss: "Tutup",
-      progress: "Kemajuan", progressBar: "Tugasan selesai",
-      progressText: function (d, n) { return "<strong>" + d + "</strong> daripada " + n + " tugasan selesai"; },
-      progressNote: "(Kotak Buang tidak dikira)",
-      clearDone: "Kosongkan yang selesai",
-      starterText: "Baru di sini? Muat minggu contoh untuk lihat cara ia berfungsi.",
-      axUrgent: "Segera", axNotUrgent: "Tidak segera", axImportant: "Penting", axNotImportant: "Tidak penting",
-      foot: "Tugasan anda kekal dalam pelayar ini sahaja. Tiada apa-apa dihantar keluar. Guna Eksport untuk sandaran.",
-      last7: "7 hari lepas", insightTitle: "Ke mana masa saya pergi?", close: "Tutup", undo: "Batal",
-      moveTo: "Pindah ke", moveLabel: "Pindah\u2026", editTask: "Sunting tugasan", deleteTask: "Padam tugasan",
-      markDone: function (x) { return "Tanda selesai: " + x; },
-      dblEdit: "Klik dua kali untuk sunting", schedDate: "Tarikh dijadualkan", delegatedTo: "Diagihkan kepada", whoPh: "Siapa yang uruskan?",
+      skip: "Langkau ke kandungan", navLabel: "Navigasi utama",
+      tabMeetings: "Mesyuarat", tabLmo: "Last Man Out", tabMore: "Lagi", tabDot: "Perlu tindakan hari ini",
+      meetingsTitle: "Tugasan mesyuarat", newTask: "Tugasan baharu",
+      close: "Tutup", cancel: "Batal", undo: "Batal", save: "Simpan", del: "Padam", optional: "(pilihan)",
+      fWhat: "Apa tugasannya?", fWhatPh: "cth. Sediakan laporan audit MQS",
+      fWho: "Siapa PIC?", fWhoSearch: "Cari nama dalam kenalan", fRecent: "PIC terkini",
+      fUseName: function (n) { return "Guna “" + n + "”"; }, fUseNameSub: "Nama baharu",
+      fNotContact: "Bukan dalam kenalan", fSaveContact: "Simpan sebagai kenalan", fChange: "Tukar",
+      fContactSaved: function (n) { return n + " disimpan dalam kenalan. Tambah no. WhatsApp kemudian supaya mesej boleh dihantar."; },
+      fWhen: "Bila perlu siap?", dToday: "Hari ini", dTomorrow: "Esok", dFri: "Jumaat ini", dNextWeek: "Minggu depan",
+      dPick: "Pilih tarikh", dNone: "Tiada tarikh", dPickAria: "Pilih tarikh siap",
+      dateKw: { today: ["hari ini", "harini"], tomorrow: ["esok"], nextweek: ["minggu depan"] },
+      errWhat: "Tulis apa tugasannya.", errWho: "Pilih PIC.",
+      saveMore: "Simpan & tambah lagi",
+      savedUnsent: function (n) { return "Disimpan. " + n + " belum tahu."; }, savedNext: "Disimpan. Tambah tugasan seterusnya.", sendNow: "Hantar sekarang",
+      gNoPic: "Tiada PIC", gNoPicHelp: "Tugasan daripada versi planner yang lama. Pilih PIC untuk setiap satu, atau padam.",
+      gUnsent: "Belum dimaklumkan", gUnsentHelp: "PIC belum tahu tugasan ini.",
+      gWaiting: "Menunggu PIC sahkan", gWaitingHelp: "Mesej sudah dihantar. Tekan “Sudah tahu” bila PIC balas.",
+      gKnows: "PIC sudah tahu", gKnowsHelp: "Pantau tarikh siap.",
+      gDone: "Siap", gDoneHelp: "30 hari lepas.",
+      nTasks: function (n) { return n + " tugasan"; },
+      hlUnsent: function (n) { return n + " PIC belum tahu tugasan mereka"; },
+      hlAllSent: "Semua sudah dimaklumkan", hlAllKnow: "Semua PIC sudah tahu tugasan mereka", hlEmpty: "Belum ada tugasan mesyuarat",
+      hlWaiting: function (n) { return n + " menunggu pengesahan"; }, hlLate: function (n) { return n + " lewat"; },
+      hlNoLate: "Tiada yang lewat", hlNoPic: function (n) { return n + " tugasan tiada PIC"; },
+      sendToN: function (n) { return "Hantar kepada " + n + " PIC"; },
+      knows: "Sudah tahu", knowsLong: "PIC sudah tahu",
+      knowsAria: function (n, x) { return "Sudah tahu: " + n + ", " + x; },
+      knowsHint: "Tekan bila PIC balas mesej anda (cth. “Baik, noted”).",
+      knowsDone: function (n) { return "Ditanda: " + n + " sudah tahu."; },
+      allKnow: function (n) { return "Tanda semua sudah tahu (" + n + ")"; },
+      allKnowDone: function (n, who) { return n + " tugasan ditanda: " + who + " sudah tahu."; },
+      ackBySu: "Ditanda oleh anda", ackByLink: "PIC sahkan melalui pautan", ackByOld: "Daripada status lama",
+      statusH: "Status", stepRecorded: "Direkod", stepTell: "Maklumkan PIC", stepTold: "Dimaklumkan", stepAck: "PIC sahkan terima", stepDone: "Siap",
+      stepPick: "Pilih PIC", stepDoneSr: "(selesai)",
+      tellHint: function (n) { return "Pilih cara untuk beritahu " + n + "."; },
+      notConfirmed: function (x) { return "Belum disahkan. Dihantar " + x + "."; },
+      noReply: function (n) { return "Belum ada jawapan selepas " + n + " hari bekerja."; }, remindLead: "Hantar peringatan:",
+      lateN: function (n) { return "Lewat " + n + " hari"; },
+      lateBanner: function (n, d) { return "Lewat " + n + " hari. Tarikh siap " + d + "."; },
+      dueOn: function (d) { return "Siap " + d; }, dueToday: "Siap hari ini", dueTomorrow: "Siap esok", dueLabel: "Tarikh siap",
+      pillToday: "Hari ini", pillTomorrow: "Esok",
+      sentAgo: function (x) { return "Dihantar " + x; }, doneOn: function (d) { return "Siap " + d; },
+      viaWa: "WhatsApp", viaEmail: "Emel", viaOther: "Mesej",
+      clock: function (h, m) { return (h % 12 || 12) + ":" + m + (h < 12 ? " pagi" : h < 19 ? " petang" : " malam"); },
+      btnWa: "WhatsApp", btnEmail: "Emel", remindWa: "Peringatan WhatsApp", remindEmail: "Peringatan emel",
+      resend: "Hantar semula", seeMsg: "Lihat mesej", inviteCal: "Jemput ke Google Calendar", askOrRemind: "Minta status / peringatan", remindLate: "Hantar peringatan",
+      markDone: "Tanda siap", reopen: "Buka semula", doneToast: "Tugasan ditanda siap.", reopened: "Tugasan dibuka semula.",
+      needHelp: "Perlu bantuan", needHelpSub: "PIC minta bantuan atau ada halangan",
+      noPic: "Tiada PIC", noPhone: "Tiada no. WhatsApp", noEmail: "Tiada emel",
+      pickPic: "Pilih PIC", pickPicTitle: "Pilih PIC", picSet: function (n) { return "PIC: " + n; },
+      delTask: "Padam tugasan", delConfirmTitle: "Padam tugasan ini?",
+      delConfirm: function (x) { return "“" + x + "” akan dipadam. Ia tidak boleh dikembalikan selepas ini (kecuali dari sandaran)."; },
+      taskDeleted: "Tugasan dipadam",
+      editText: "Sunting teks tugasan", editSave: "Simpan teks", textSaved: "Teks tugasan disimpan.",
+      taskEyebrow: "Tugasan mesyuarat",
+      sendSheetEyebrow: "Satu mesej untuk setiap orang", sendTitle: "Hantar kepada PIC",
+      msgTitle: "Tajuk mesej", msgTitlePh: "cth. Mesyuarat Jabatan Bil. 4/2026",
+      sentProgress: function (a, b) { return a + " daripada " + b + " orang dihantar"; }, progressAria: "Kemajuan hantar",
+      sentCard: function (c, t) { return "Dihantar melalui " + c + ", " + t; }, sentPill: "Dihantar", notYet: "Belum", finish: "Selesai",
+      sentMarked: function (c, n, k) { return c + " dibuka untuk " + n + ". " + k + " tugasan ditanda dimaklumkan."; },
+      sentOne: function (c, n) { return c + " dibuka untuk " + n + ". Ditanda dimaklumkan."; },
+      noneToSend: "Tiada tugasan baharu untuk dihantar. Semua PIC sudah dimaklumkan.",
+      tasksOpen: function (n) { return n + " tugasan belum siap"; },
+      waitingN: function (n) { return n + " menunggu sahkan"; },
+      askStatusHint: function (n) { return "Satu mesej dengan semua tugasan " + n + " yang belum siap. PIC balas dengan huruf: A = Belum mula, B = Sedang buat, C = Siap, D = Perlu bantuan."; },
+      askSent: function (n) { return "Permintaan status dibuka untuk " + n + "."; },
+      contactEyebrow: "Kenalan",
+      lmoNoticeTitle: function (n) { return "Last Man Out minggu ini: " + n; }, lmoNoticeWa: "Hantar peringatan WhatsApp hari ini.",
+      lmoSeeAll: "Buka Last Man Out",
+      lmoTabSub: "Giliran tutup pejabat (MQS)",
+      lmoThisWeek: function (p) { return "Minggu ini · " + p; }, lmoNextTurn: function (p) { return "Giliran seterusnya · " + p; },
+      lmoDutyTime: function (a, b) { return "bertugas " + a + "–" + b; },
+      lmoEmailCal: "Emel & jemputan kalendar",
+      lmoAutoOn: function (d) { return "Dihantar automatik oleh Google Apps Script pada " + d; },
+      lmoSentOn: function (d) { return "Dihantar " + d; }, lmoToSendNow: "Perlu dihantar sekarang", lmoToSendOn: function (d) { return "Dihantar pada " + d; },
+      lmoWaLine: "Peringatan WhatsApp", lmoWaToday: "Perlu dihantar hari ini",
+      lmoConfirmTitle: "Pengesahan Selesai",
+      lmoConfirmAuto: function (had) { return "Pegawai tekan Selesai selepas tugas setiap petang (had " + had + "). Jika tiada, Ketua Jabatan dimaklumkan secara automatik."; },
+      lmoConfirmManual: function (had) { return "Pegawai maklumkan SELESAI kepada anda selepas tugas setiap petang (had " + had + "). Jika tiada, planner akan minta anda maklumkan Ketua Jabatan."; },
+      lmoDaysAria: "Hari bertugas", dayStToday: "Hari ini", dayStOk: "Selesai", dayStOff: "Tiada tugas", dayStPending: "Belum sahkan", dayStKj: "KJ dimaklumkan",
+      lmoUpcoming: "Akan datang", lmoEmailAuto: function (d) { return "Emel automatik " + d; }, lmoEmailOn: function (d) { return "Emel " + d; },
+      lmoManage: "Urus giliran", lmoNeedAct: "Perlu tindakan",
+      lmoAutoNote: "Automatik melalui Google Apps Script: emel, jemputan kalendar, butang Selesai dan amaran kepada Ketua Jabatan.",
+      lmoManualNote: "Tanpa Google Apps Script, hantar emel, jemputan kalendar dan WhatsApp sendiri dari halaman ini. Panduan menerangkan cara menjadikannya automatik.",
+      lmoEmpty: "Belum ada jadual giliran. Import senarai staf di Kenalan jabatan, kemudian jana jadual di Urus giliran.",
+      lmoNoMore: "Belum ada giliran seterusnya. Sambung satu pusingan di Urus giliran.",
+      moreTitle: "Lagi", moreSub: "Tetapan dan alat", mPeople: "Orang", mBackup: "Sandaran data",
+      mBackupSave: "Simpan sandaran", mBackupSaveSub: "Muat turun semua tugasan, kenalan dan giliran",
+      mBackupLoad: "Pulihkan sandaran", mBackupLoadSub: "Dari telefon lain atau sandaran lama",
+      mDisplay: "Paparan", mLang: "Bahasa", mTheme: "Tema", themeLight: "Cerah", themeDark: "Gelap", themeAuto: "Auto",
+      mApp: "Aplikasi", install: "Pasang aplikasi", mInstallSub: "Buka terus dari skrin utama",
+      mGuide: "Panduan", mGuideSub: "Automasi Last Man Out, dalam Bahasa Melayu",
+      foot: "Semua data kekal dalam peranti ini. Tiada apa-apa dihantar keluar. Guna Simpan sandaran untuk menyimpan salinan.",
+      backupSaved: "Fail sandaran dimuat turun. Simpan di Google Drive atau emel kepada diri sendiri.",
+      emptyTasks: "Belum ada tugasan. Selepas mesyuarat, tekan “Tugasan baharu”.", trySample: "Cuba dengan contoh",
       addToCal: function (x) { return "Tambah ke Google Calendar: " + x; },
-      calDetails: "Dirancang dalam kotak Jadualkan, JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
       calDetailsDel: "Tugasan diagihkan melalui JPPP Smart Planner (https://hafizi-ui.github.io/planner/).",
-      fromSchedule: "Dari Jadualkan", onlyYou: "Hanya anda", overdue: "Lewat",
-      dueDate: "Tarikh akhir", notified: "Dimaklumkan", saveContact: "Simpan kenalan",
+      saveContact: "Simpan kenalan",
       waAria: function (n, x) { return "Hantar WhatsApp kepada " + n + ": " + x; },
       mailAria: function (n, x) { return "Hantar emel kepada " + n + ": " + x; },
       msgSubject: function (x) { return "Tugasan untuk tindakan: " + x; },
@@ -321,7 +420,7 @@
           (due ? "\nTarikh akhir: " + due : "") + (cal ? "\n\nTambah ke Google Calendar:\n" + cal : "") + "\n\nTerima kasih.";
       },
       contacts: "Kenalan jabatan",
-      contactsNote: "Disimpan dalam peranti ini sahaja. Tidak dimuat naik ke mana-mana. Termasuk dalam Eksport sandaran.",
+      contactsNote: "Disimpan dalam peranti ini sahaja. Tidak dimuat naik ke mana-mana. Termasuk dalam Simpan sandaran.",
       cName: "Nama", cPhone: "No. WhatsApp", cEmail: "Emel", cSave: "Simpan", cUpdate: "Kemas kini", cCancel: "Batal",
       cImport: "Import CSV", cTemplate: "Templat CSV", cExport: "Eksport CSV", cSearch: "Cari kenalan",
       cCsvHelp: "Lajur CSV: Nama, No. WhatsApp, Emel, Jawatan, Program, Giliran LMO (Ya/Tidak). Hanya nama yang wajib. Simpan dari Excel atau Google Sheets sebagai .csv.",
@@ -333,32 +432,13 @@
       cDelete: function (n) { return "Padam " + n + " daripada kenalan?"; },
       cSaved: function (n) { return n + " disimpan"; }, cEdit: "Sunting", cDel: "Padam",
       cCount: function (n) { return n + " kenalan"; },
-      sendByPic: "Hantar ikut PIC", sendTitle: "Hantar tugasan ikut PIC",
-      sendNote: "Satu mesej untuk setiap orang, mengandungi semua tugasan mereka yang belum selesai. Sesuai untuk minit mesyuarat.",
-      meetingLabel: "Daripada (pilihan)", meetingPh: "cth. Mesyuarat Jabatan JPPP Bil. 3/2026",
-      onlyNew: "Hanya tugasan yang belum dimaklumkan",
-      noPics: "Belum ada tugasan Agihkan yang ada PIC.",
-      notSaved: "Belum ada dalam kenalan",
-      sentAll: function (n) { return n + " tugasan ditanda sebagai dimaklumkan"; },
-      nOpen: function (n) { return n + " tugasan belum selesai"; },
       groupBody: function (name, from, lines) {
         return "Salam " + name + ",\n\n" + (from ? "Tindakan daripada " + from + ":" : "Tugasan untuk tindakan tuan/puan:") + "\n\n" + lines + "\n\nTerima kasih.";
       },
       groupSubject: function (from, n) { return (from ? from + ": " : "") + n + " tugasan untuk tindakan"; },
+      nOpen: function (n) { return n + " tugasan belum selesai"; },
       dueShort: "Tarikh akhir",
-      monitor: "Pantauan", monitorTitle: "Pantauan projek", monitorEyebrow: "Tugasan diagihkan",
-      stNone: "Belum mula", stDoing: "Sedang buat", stBlocked: "Perlukan bantuan", stDone: "Siap", statusLabel: "Status",
-      noteLabel: "Catatan status", notePh: "Perkembangan terkini…",
-      mActive: "Aktif", mDoneRate: "Siap", mOverdue: "Lewat", mSoon: "Due hari ini/esok", mStale: "Tiada kemas kini 5+ hari",
-      mActiveHelp: "tugasan diagihkan", mDoneHelp: "daripada semua agihan", mStaleHelp: "sudah dimaklumkan, tiada berita",
-      needRemind: "Perlu peringatan", byPic: "Ikut PIC", nothingDue: "Tiada yang due hari ini atau esok. Semua terkawal.",
-      noDelegated: "Belum ada tugasan diagihkan. Masukkan tugasan ke Agihkan, pilih PIC dan tetapkan tarikh akhir.",
-      remind: "Peringatan", askStatus: "Minta status", remindedToday: "Sudah diingatkan hari ini",
-      askedOn: function (d) { return "Status diminta " + d; }, updatedAgo: function (d) { return "Dikemas kini " + d; },
-      never: "Belum ada kemas kini", todayW: "hari ini", yesterdayW: "semalam", daysAgo: function (n) { return n + " hari lepas"; },
-      dueWhen: function (n) { return n < 0 ? "Lewat " + (-n) + " hari" : n === 0 ? "Due hari ini" : n === 1 ? "Due esok" : "Due dalam " + n + " hari"; },
-      remindBanner: function (n) { return n + " tugasan diagihkan due esok atau sudah lewat."; },
-      sendReminders: "Hantar peringatan",
+      todayW: "hari ini", yesterdayW: "semalam", daysAgo: function (n) { return n + " hari lepas"; },
       remindMsg: function (name, text, n, date) {
         var when = n < 0 ? "sepatutnya siap pada " + date + " (lewat " + (-n) + " hari)" : n === 0 ? "perlu disiapkan hari ini (" + date + ")" : n === 1 ? "perlu disiapkan esok (" + date + ")" : "perlu disiapkan pada " + date;
         return "Salam " + name + ",\n\nPeringatan mesra: tugasan *" + text + "* " + when + ".\n\nBoleh kongsi status terkini? Terima kasih.";
@@ -367,21 +447,11 @@
         return "Salam " + name + ",\n\nBoleh kongsi status tugasan berikut?\n\n" + lines +
           "\n\nBalas dengan nombor tugasan dan huruf:\nA = Belum mula, B = Sedang buat, C = Siap, D = Perlukan bantuan\nContoh: 1C, 2B\n\nTerima kasih.";
       },
-      remindSubject: function (x) { return "Peringatan: " + x; }, askSubject: "Kemas kini status tugasan",
-      progressOf: function (d, n) { return d + " daripada " + n + " siap"; },
-      deleteAll: "Padam semua", clearN: function (n) { return "Kosongkan " + n + " selesai"; },
-      nTasks: function (n) { return n + " tugasan"; },
-      taskDeleted: "Tugasan dipadam", tasksDeleted: function (n) { return n + " tugasan dipadam"; },
-      tasksCleared: function (n) { return n + " tugasan dikosongkan"; },
-      addedTo: function (q) { return "Ditambah ke " + q; }, movedTo: function (q) { return "Dipindah ke " + q; },
-      promoted: function (n) { return n + " tugasan berjadual sudah sampai tarikh, jadi ia dipindah ke Buat."; },
+      remindSubject: function (x) { return "Peringatan: " + x; }, askSubject: "Kemas kini status tugasan", askStatus: "Minta status",
       imported: function (n) { return n + " tugasan diimport"; }, badFile: "Fail itu bukan sandaran planner",
-      saveFail: "Tidak dapat simpan. Eksport sandaran sekarang.",
-      confirmSample: "Ganti tugasan semasa dengan minggu contoh? Salinan tugasan anda tetap disimpan, dan Eksport masih boleh digunakan.",
-      sampleLoaded: "Minggu contoh dimuatkan. Buka Analisis untuk lihat ulasan.",
-      packLmo: "Tambah pakej: Last Man Out (MQS)",
-      packAdded: function (n) { return n + " tugasan Last Man Out (MQS) ditambah. Isi nama PIC di kotak Agihkan."; },
-      packExists: "Tugasan Last Man Out (MQS) sudah ada dalam planner anda.",
+      saveFail: "Tidak dapat simpan. Simpan sandaran sekarang (Lagi).",
+      confirmSample: "Ganti tugasan semasa dengan contoh? Salinan tugasan anda tetap disimpan, dan Simpan sandaran masih boleh digunakan.",
+      sampleLoaded: "Contoh dimuatkan, bersama kenalan contoh. Padam bila tidak diperlukan lagi.",
       brandSub: "Setiausaha Jabatan · KPTM Kuantan",
       cRole: "Jawatan", cProg: "Program", cProgPh: "cth. AA101", cRotaCol: "Giliran LMO", cYes: "Ya", cNo: "Tidak",
       cRoles: ["Ketua Jabatan", "Setiausaha", "Ketua Program", "Pensyarah"],
@@ -478,30 +548,8 @@
       kjMarked: function (pic, d) { return "Ditanda Selesai: " + pic + ", " + d; },
       kjWa: "WhatsApp KJ", kjEmail: "Emel KJ", kjAdd: "Tambah kenalan Ketua Jabatan",
       kjTold: function (pic, d) { return "Ketua Jabatan dimaklumkan tentang " + pic + ", " + d; },
-      q: {
-        "do":       { title: "Buat",      sub: "Segera dan penting",              hint: "Siapkan ini dahulu.",                 empty: "Belum ada apa-apa. Tugasan segera + penting masuk di sini." },
-        "schedule": { title: "Jadualkan", sub: "Penting, tidak segera",           hint: "Tetapkan tarikh untuk setiap satu.",  empty: "Tambah perkara yang membawa anda ke hadapan: belajar, kesihatan, perancangan." },
-        "delegate": { title: "Agihkan",   sub: "Segera, tidak penting",           hint: "Tulis siapa yang akan uruskan.",      empty: "Belum ada apa-apa untuk diserahkan." },
-        "delete":   { title: "Buang",     sub: "Tidak segera dan tidak penting",  hint: "Lepaskan dengan sengaja.",            empty: "Tiada apa-apa untuk dibuang." }
-      },
-      ins: {
-        finished: "Selesai", planned: "Terancang", reactive: "Reaktif", letGo: "Dilepaskan",
-        plannedHelp: "dari Jadualkan", reactiveHelp: "Buat + Agihkan", letGoHelp: "dibuang dengan sengaja",
-        mix: "Apa yang anda siapkan, ikut kotak", perDay: "Selesai setiap hari", whatItMeans: "Apa maksudnya",
-        balance: "Skor keseimbangan", vsLast: function (d) { return d === 0 ? "sama seperti minggu sebelumnya" : (d > 0 ? "+" + d : d) + " mata berbanding minggu sebelumnya"; },
-        noData: "Belum ada tugasan selesai dalam 7 hari lepas. Tanda tugasan yang siap dan kembali ke sini hujung minggu.",
-        reactiveHigh: function (p) { return p + "% kerja yang anda siapkan adalah kerja segera. Cuba lindungi dua slot masa minggu ini untuk tugasan Jadualkan."; },
-        reactiveMid: function (p) { return p + "% kerja yang anda siapkan adalah kerja segera. Anda hampir seimbang; satu lagi tugasan terancang sehari sudah cukup."; },
-        plannedGood: function (p) { return p + "% kerja yang anda siapkan telah dirancang awal. Itulah kerja yang membawa anda ke hadapan. Teruskan."; },
-        promotedN: function (n) { return n + " tugasan berpindah dari Jadualkan ke Buat kerana tarikhnya sudah tiba. Mula lebih awal supaya ia tidak masuk kotak merah."; },
-        droppedN: function (n) { return "Anda melepaskan " + n + " tugasan dengan sengaja. Itu " + n + " keputusan, bukan kegagalan."; },
-        onlyYouN: function (n) { return n + " tugasan segera hanya boleh dibuat oleh anda. Jika ini kerap berlaku, bincang tarikh akhir lebih awal."; },
-        noDateN: function (n) { return n + " tugasan Jadualkan belum ada tarikh. Tetapkan hari untuk setiap satu supaya ia tidak menjadi segera."; },
-        plan: "Rancang minggu depan", balanceHelp: "Peratus kerja selesai yang dirancang (Jadualkan). Lebih tinggi lebih baik."
-      },
       days: ["Ahd", "Isn", "Sel", "Rab", "Kha", "Jum", "Sab"],
-      locale: "ms-MY",
-      kw: ["hari ini", "harini", "esok", "malam ini", "malam ni", "petang ni", "pagi ni", "segera", "tarikh akhir", "sekarang", "deadline", "due", "asap", "urgent"]
+      locale: "ms-MY"
     }
   };
 
@@ -510,12 +558,6 @@
     var dict = I18N[lang], v = dict[key] !== undefined ? dict[key] : I18N.en[key];
     if (typeof v === "function") return v.apply(null, Array.prototype.slice.call(arguments, 1));
     return v === undefined ? key : v;
-  }
-  function QT(q) { return I18N[lang].q[q]; }
-  function INS(key) {
-    var v = I18N[lang].ins[key];
-    if (typeof v === "function") return v.apply(null, Array.prototype.slice.call(arguments, 1));
-    return v;
   }
 
   /* ================================================================
@@ -539,7 +581,8 @@
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function num(v) { return typeof v === "number" && isFinite(v) && v > 0 ? v : 0; }
 
-  // Turn anything (old saves, imports) into a clean task object
+
+  // Turn anything (old saves, imports) into a clean task object. Old fields are kept, so nothing is lost.
   function normalize(t) {
     if (!t || typeof t !== "object" || typeof t.text !== "string" || !QSET[t.q]) return null;
     var text = t.text.trim().slice(0, 200);
@@ -551,22 +594,31 @@
       done: t.done === true,
       created: num(t.created) || Date.now(),
       date: typeof t.date === "string" && ISO_DATE.test(t.date) ? t.date : "",
-      who: typeof t.who === "string" ? t.who.slice(0, 60) : "",
+      who: typeof t.who === "string" ? t.who.trim().slice(0, 60) : "",
       origin: QSET[t.origin] ? t.origin : t.q,
       doneAt: num(t.doneAt) || null,
       doneQ: QSET[t.doneQ] ? t.doneQ : null,
       promoted: t.promoted === true,
       notifiedAt: num(t.notifiedAt) || null,
+      sentVia: SENT_VIA[t.sentVia] ? t.sentVia : "",
+      ackAt: num(t.ackAt) || null,
+      ackVia: ACK_VIA[t.ackVia] ? t.ackVia : "",
       status: t.status === "doing" || t.status === "blocked" ? t.status : "",
       statusNote: typeof t.statusNote === "string" ? t.statusNote.slice(0, 140) : "",
       statusAt: num(t.statusAt) || null,
       remindedAt: num(t.remindedAt) || null,
       askedAt: num(t.askedAt) || null,
+      src: typeof t.src === "string" ? t.src.trim().slice(0, 80) : "",
       reactive: t.reactive === true,
       moves: Array.isArray(t.moves) ? t.moves.filter(function (m) {
         return m && QSET[m.from] && QSET[m.to] && num(m.at);
       }).slice(-20).map(function (m) { return { from: m.from, to: m.to, at: m.at, auto: m.auto === true }; }) : []
     };
+    if (!n.ackAt) n.ackVia = "";
+    if (n.ackAt && !n.ackVia) n.ackVia = "su";
+    // Phase 2 seam ("Saya terima" link): kept when present, never created in this release
+    if (typeof t.ackRef === "string" && /^[A-Za-z0-9_-]{6,40}$/.test(t.ackRef)) n.ackRef = t.ackRef;
+    if (typeof t.ackCode === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(t.ackCode)) n.ackCode = t.ackCode;
     if (n.done && !n.doneAt) n.doneAt = n.created;
     if (n.done && !n.doneQ) n.doneQ = n.q;
     if (!n.done) { n.doneAt = null; n.doneQ = null; }
@@ -672,6 +724,75 @@
     });
   }
 
+
+  /* ---------- Status model: one source of truth for every screen ---------- */
+  // "nopic" (old task without a PIC) | "unsent" | "waiting" (message sent) | "knows" (PIC knows) | "done"
+  function stage(t) {
+    if (t.done) return "done";
+    if (!t.who) return "nopic";
+    if (t.ackAt) return "knows";
+    if (t.notifiedAt) return "waiting";
+    return "unsent";
+  }
+  function isLate(t) { return !t.done && !!t.date && t.date < todayISO(); }
+  function lateDays(t) { return -daysUntil(t.date); }
+  function needsHelp(t) { return t.status === "blocked"; }
+  // Late first, then by due date (no date last), then oldest first
+  function sortOpen(a, b) {
+    var la = isLate(a) ? 0 : 1, lb = isLate(b) ? 0 : 1;
+    if (la !== lb) return la - lb;
+    var da = a.date || "9999-99-99", db = b.date || "9999-99-99";
+    if (da !== db) return da < db ? -1 : 1;
+    return a.created - b.created;
+  }
+  // Order used inside messages (same as the earlier version, so message texts do not change)
+  function sortByDue(a, b) {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    var da = a.date || "9999-99-99", db = b.date || "9999-99-99";
+    if (da !== db) return da < db ? -1 : 1;
+    return a.created - b.created;
+  }
+  // Box name for older copies of the app: tasks with a PIC were "Delegate"
+  function legacyQ(t) { return t.who ? "delegate" : (t.q === "do" || t.q === "schedule" ? t.q : "delegate"); }
+  // Working days (Mon-Fri) after the day a message was sent, up to today
+  function workdaysSince(ts) {
+    var from = todayISO(ts), today = todayISO(), n = 0;
+    for (var d = addDays(from, 1); d <= today; d = addDays(d, 1)) if (isWorkday(d)) n++;
+    return n;
+  }
+
+  /* ---------- Migration from the four-box planner (runs once; nothing is lost) ---------- */
+  // Per task: an open "Delete" task goes to the archive as let go; an old "In progress / Needs help" status means the PIC knew.
+  function mapLegacy(t, now) {
+    if (t.q === "delete" && !t.done) { t.dropped = true; if (!t.archivedAt) t.archivedAt = now; return "archive"; }
+    if (t.q === "delegate" && t.who && !t.ackAt && (t.status === "doing" || t.status === "blocked")) {
+      t.ackAt = t.statusAt || t.notifiedAt || t.created; t.ackVia = "old-status";
+    }
+    return "keep";
+  }
+  function migrateV2() {
+    if (meta.model === 2) return false;
+    writeJSON(KEY + ":before-v2", { tasks: tasks, archive: archive, at: Date.now() });   // one-time safety copy
+    var now = Date.now(), keep = [];
+    tasks.forEach(function (t) { if (mapLegacy(t, now) === "archive") archive.push(t); else keep.push(t); });
+    tasks = keep;
+    meta.model = 2;
+    saveMeta();
+    save();
+    return true;
+  }
+  // Done more than 30 days ago: off the list, into the archive (still in backups for 120 days)
+  function autoArchiveDone() {
+    var cutoff = Date.now() - DONE_DAYS * DAY, moved = 0;
+    tasks = tasks.filter(function (t) {
+      if (!t.done || (t.doneAt || 0) > cutoff) return true;
+      t.archivedAt = Date.now(); archive.push(t); moved++;
+      return false;
+    });
+    if (moved) save();
+    return moved;
+  }
+
   function loadAll() {
     contacts = cleanContacts(readJSON(CONTACTS_KEY, []));
     loadRota();
@@ -680,6 +801,8 @@
     archive = cleanList(readJSON(ARCHIVE_KEY, []), seen);
     var m = readJSON(META_KEY, {});
     meta = m && typeof m === "object" ? m : {};
+    migrateV2();
+    autoArchiveDone();
   }
   function pruneArchive() {
     var cutoff = Date.now() - ARCHIVE_DAYS * DAY;
@@ -687,56 +810,32 @@
   }
   function save() {
     pruneArchive();
+    tasks.forEach(function (t) { t.q = legacyQ(t); if (t.done) t.doneQ = t.q; });
     var ok = writeJSON(KEY, tasks) && writeJSON(ARCHIVE_KEY, archive);
     if (!ok) showToast(T("saveFail"), false);
     return ok;
   }
   function saveMeta() { writeJSON(META_KEY, meta); }
-  function commit() { save(); render(); }
-
   function find(id) {
     for (var i = 0; i < tasks.length; i++) if (tasks[i].id === id) return tasks[i];
     return null;
   }
-
   function todayISO(d) {
     d = d ? new Date(d) : new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().slice(0, 10);
   }
 
-  function moveTask(t, to, auto) {
-    if (!QSET[to] || t.q === to) return;
-    t.moves.push({ from: t.q, to: to, at: Date.now(), auto: !!auto });
-    if (t.moves.length > 20) t.moves.shift();
-    t.q = to;
-    if (to !== "do") { t.promoted = false; t.reactive = false; }
-    if (t.done) t.doneQ = to;
-  }
   function setDone(t, done) {
     t.done = done;
     t.doneAt = done ? Date.now() : null;
     t.doneQ = done ? t.q : null;
   }
 
-  // Scheduled tasks whose date has arrived move to Do on their own
-  function promoteDue() {
-    var today = todayISO(), n = 0;
-    tasks.forEach(function (t) {
-      if (t.q === "schedule" && !t.done && t.date && t.date <= today) {
-        moveTask(t, "do", true);
-        t.promoted = true;
-        n++;
-      }
-    });
-    return n;
-  }
-
   /* ================================================================
      Elements and small helpers
      ================================================================ */
   var $ = function (id) { return document.getElementById(id); };
-  var matrix = $("matrix"), form = $("composer"), input = $("taskInput");
 
   function h(tag, props, children) {
     var el = document.createElement(tag);
@@ -762,811 +861,773 @@
     setTimeout(function () { a.textContent = msg; }, 30);
   }
 
-  /* ================================================================
-     Rendering the matrix
-     ================================================================ */
-  function render() {
-    // Remember keyboard focus so it survives the re-render
-    var active = document.activeElement, focusId = null, focusRole = null, focusQ = null;
-    if (active && matrix.contains(active)) {
-      var li = active.closest(".task");
-      if (li) { focusId = li.getAttribute("data-id"); focusRole = active.getAttribute("data-role"); }
-      var sec = active.closest(".quad");
-      if (sec) focusQ = sec.getAttribute("data-q");
-    }
-
-    matrix.querySelectorAll(".quad").forEach(function (n) { n.remove(); });
-    taskRefreshers = Object.create(null);
-    QIDS.forEach(function (q) { matrix.appendChild(renderQuadrant(q)); });
-    renderProgress();
-
-    if (focusId) {
-      var target = matrix.querySelector('.task[data-id="' + cssEscape(focusId) + '"] [data-role="' + focusRole + '"]');
-      if (target) target.focus();
-      else {
-        var q = matrix.querySelector('.quad[data-q="' + focusQ + '"]');
-        if (q) q.focus();
-      }
-    }
-  }
-  var taskRefreshers = Object.create(null);
-  function refreshAllShares() { Object.keys(taskRefreshers).forEach(function (k) { taskRefreshers[k](); }); }
   function longDate(iso) {
     var p = iso.split("-").map(Number);
     return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString(T("locale"), { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   }
   function escapeHtml(x) { return String(x).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function cssEscape(s) { return window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&"); }
+  function daysUntil(iso) {
+    var p = iso.split("-").map(Number), d = new Date(p[0], p[1] - 1, p[2]), n = new Date();
+    n.setHours(0, 0, 0, 0);
+    return Math.round((d - n) / DAY);
+  }
+  function ago(ts) {
+    var d = new Date(ts); d.setHours(0, 0, 0, 0);
+    var n = new Date(); n.setHours(0, 0, 0, 0);
+    var k = Math.round((n - d) / DAY);
+    return k <= 0 ? T("todayW") : k === 1 ? T("yesterdayW") : T("daysAgo", k);
+  }
+  function isToday(ts) { return !!ts && todayISO(ts) === todayISO(); }
+  function lastActivity(t) { return Math.max(t.statusAt || 0, t.notifiedAt || 0, t.created || 0); }
+  function delegated() { return tasks.filter(function (t) { return t.q === "delegate" && t.who; }); }
+  function needsReminder(t) { return !t.done && t.date && daysUntil(t.date) <= 1; }
+  function isStale(t) { return !t.done && t.notifiedAt && Date.now() - lastActivity(t) > 5 * DAY; }
 
-  function sortItems(q) {
-    return function (a, b) {
-      if (a.done !== b.done) return a.done ? 1 : -1;
-      if (q === "schedule") {
-        var da = a.date || "9999-99-99", db = b.date || "9999-99-99";
-        if (da !== db) return da < db ? -1 : 1;
-      }
-      return a.created - b.created;
-    };
+  function waLink(phone, msg, label, aria, onclick) {
+    return h("a", { class: "cal-link wa-link", target: "_blank", rel: "noopener", href: "https://wa.me/" + phone + "?text=" + encodeURIComponent(msg),
+      "aria-label": aria, title: aria, html: ICONS.chat + "<span>" + escapeHtml(label) + "</span>", onclick: onclick });
+  }
+  function mailLink(email, subject, msg, label, aria, onclick) {
+    return h("a", { class: "cal-link mail-link", href: "mailto:" + encodeURIComponent(email) + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(msg.replace(/\*/g, "")),
+      "aria-label": aria, title: aria, html: ICONS.mail + "<span>" + escapeHtml(label) + "</span>", onclick: onclick });
+  }
+  function shortDay(iso) { return parseISO(iso).toLocaleDateString(T("locale"), { weekday: "short", day: "numeric", month: "short" }); }
+  function clockText(ts) { var d = new Date(ts); return T("clock", d.getHours(), pad2(d.getMinutes())); }
+  // "hari ini, 8:15 pagi" / "semalam, 4:06 petang" / "Jum, 27 Nov, 4:06 petang"
+  function whenText(ts) {
+    var k = -daysUntil(todayISO(ts));
+    return (k === 0 ? T("todayW") : k === 1 ? T("yesterdayW") : shortDay(todayISO(ts))) + ", " + clockText(ts);
+  }
+  function dueText(iso) { var n = daysUntil(iso); return n === 0 ? T("dueToday") : n === 1 ? T("dueTomorrow") : T("dueOn", shortDay(iso)); }
+  function firstName(n) { return String(n || "").replace(/\s*\((contoh|example)\)$/i, ""); }
+  function viaText(v) { return v === "wa" ? T("viaWa") : v === "email" ? T("viaEmail") : T("viaOther"); }
+  function pill(cls, text, icon) { return h("span", { class: "pill pill-" + cls, html: (icon || "") + escapeHtml(text) }); }
+  function svgBtn(cls, icon, text, props) {
+    var p = { type: "button", class: "btn " + cls, html: (icon || "") + "<span>" + escapeHtml(text) + "</span>" };
+    Object.keys(props || {}).forEach(function (k) { p[k] = props[k]; });
+    return h("button", p);
   }
 
-  function renderQuadrant(q) {
-    var info = QT(q);
-    var items = tasks.filter(function (t) { return t.q === q; }).sort(sortItems(q));
-    var body;
-    if (items.length) {
-      body = h("ul", { class: "task-list" });
-      items.forEach(function (t) { body.appendChild(renderTask(t)); });
-    } else {
-      body = h("div", { class: "empty", text: info.empty });
-    }
-
-    var doneHere = items.filter(function (t) { return t.done; }).length;
-    var footAction = null;
-    if (q === "delete" && items.length) {
-      footAction = h("button", { class: "link-btn", type: "button", text: T("deleteAll"), onclick: function () {
-        removeWhere(function (t) { return t.q === "delete"; }, T("tasksDeleted", items.length));
-      } });
-    } else if (doneHere) {
-      footAction = h("button", { class: "link-btn", type: "button", text: T("clearN", doneHere), onclick: function () {
-        removeWhere(function (t) { return t.q === q && t.done; }, T("tasksCleared", doneHere));
-      } });
-    }
-    if (q === "delegate" && items.some(function (t) { return !t.done && t.who; })) {
-      footAction = h("div", { class: "foot-actions" }, [
-        h("button", { class: "cal-link send-all", type: "button", "data-role": "sendall",
-          html: ICONS.chat + "<span>" + escapeHtml(T("sendByPic")) + "</span>", onclick: function () { openSendAll(); } }),
-        footAction
-      ]);
-    }
-
-    var section = h("section", { class: "quad", "data-q": q, tabindex: "-1", "aria-label": info.title + ", " + info.sub }, [
-      h("div", { class: "quad-head" }, [
-        h("div", null, [
-          h("h2", { class: "quad-title", text: info.title }),
-          h("p", { class: "quad-sub", text: info.sub })
-        ]),
-        h("span", { class: "quad-count", text: String(items.length), title: T("nTasks", items.length) })
-      ]),
-      body,
-      h("div", { class: "quad-foot" }, [h("p", { class: "quad-hint", text: info.hint }), footAction])
-    ]);
-
-    section.addEventListener("dragover", function (e) { e.preventDefault(); section.classList.add("drag-over"); });
-    section.addEventListener("dragleave", function (e) {
-      if (!section.contains(e.relatedTarget)) section.classList.remove("drag-over");
-    });
-    section.addEventListener("drop", function (e) {
-      e.preventDefault();
-      section.classList.remove("drag-over");
-      var t = find(e.dataTransfer.getData("text/plain"));
-      if (t && t.q !== q) { moveTask(t, q); commit(); announce(T("movedTo", QT(q).title)); flash(q); }
-    });
-    return section;
-  }
-
-  function renderTask(t) {
-    var q = t.q;
-    var li = h("li", { class: "task" + (t.done ? " done" : ""), draggable: "true", "data-id": t.id });
-    li.addEventListener("dragstart", function (e) {
-      e.dataTransfer.setData("text/plain", t.id);
-      e.dataTransfer.effectAllowed = "move";
-      li.classList.add("dragging");
-    });
-    li.addEventListener("dragend", function () { li.classList.remove("dragging"); });
-
-    var check = h("input", {
-      type: "checkbox", class: "check", "data-role": "check", checked: t.done, "aria-label": T("markDone", t.text),
-      onchange: function () { setDone(t, check.checked); if (t.q === "delegate") t.statusAt = Date.now(); commit(); }
-    });
-
-    var text = h("p", { class: "task-text", text: t.text, title: T("dblEdit") });
-    text.addEventListener("dblclick", function () { startEdit(t, text); });
-    var body = h("div", { class: "task-body" }, [text]);
-
-    var badges = [];
-    if (t.promoted && q === "do") badges.push(h("span", { class: "badge badge-schedule", text: T("fromSchedule") }));
-    if (t.reactive && q === "do") badges.push(h("span", { class: "badge", text: T("onlyYou") }));
-
-    if (q === "schedule" || q === "delegate") {
-      var isDel = q === "delegate";
-      var whoIn = isDel ? h("input", {
-        class: "chip-input chip-who", "data-role": "who", type: "text", value: t.who, list: "contactList",
-        autocomplete: "off", placeholder: T("whoPh"), "aria-label": T("delegatedTo"), maxlength: "60"
-      }) : null;
-      var dateIn = h("input", {
-        class: "chip-input", "data-role": "date", type: "date", value: t.date,
-        "aria-label": isDel ? T("dueDate") : T("schedDate"), title: isDel ? T("dueDate") : T("schedDate")
-      });
-      var overdueTag = h("span", { class: "badge badge-overdue", text: T("overdue") });
-      var share = h("span", { class: "share" });
-      function refreshMeta() {
-        var od = !!t.date && t.date < todayISO() && !t.done;
-        dateIn.classList.toggle("overdue", od);
-        overdueTag.hidden = !od;
-        share.textContent = "";
-        if (t.done) return;
-        var c = isDel ? contactFor(t.who) : null;
-        var calUrl = t.date ? gcalUrl(t, c && c.email) : "";
-        if (calUrl) share.appendChild(h("a", { class: "cal-link", "data-role": "gcal", target: "_blank", rel: "noopener",
-          href: calUrl, title: T("addToCal", t.text), "aria-label": T("addToCal", t.text),
-          html: ICONS.cal + "<span>Google Calendar</span>" }));
-        if (!isDel) return;
-        if (reachable(c)) {
-          var due = t.date ? longDate(t.date) : "";
-          var msg = T("msgBody", c.name, t.text, due, calUrl);
-          var mark = function () { t.notifiedAt = Date.now(); save(); setTimeout(refreshMeta, 0); };
-          if (c.phone) share.appendChild(h("a", { class: "cal-link wa-link", "data-role": "wa", target: "_blank", rel: "noopener",
-            href: "https://wa.me/" + c.phone + "?text=" + encodeURIComponent(msg),
-            "aria-label": T("waAria", c.name, t.text), title: T("waAria", c.name, t.text),
-            html: ICONS.chat + "<span>WhatsApp</span>", onclick: mark }));
-          if (c.email) share.appendChild(h("a", { class: "cal-link mail-link", "data-role": "mail",
-            href: "mailto:" + encodeURIComponent(c.email) + "?subject=" + encodeURIComponent(T("msgSubject", t.text)) + "&body=" + encodeURIComponent(msg.replace(/\*/g, "")),
-            "aria-label": T("mailAria", c.name, t.text), title: T("mailAria", c.name, t.text),
-            html: ICONS.mail + "<span>" + escapeHtml(T("cEmail")) + "</span>", onclick: mark }));
-        } else if (t.who) {
-          share.appendChild(contactFixButton(c, t.who, null, { "data-role": "addc" }));
-        }
-        if (t.notifiedAt) share.appendChild(h("span", { class: "badge badge-ok", text: "\u2713 " + T("notified") }));
-      }
-      refreshMeta();
-      // Save without re-rendering, so typing a date by keyboard is not interrupted
-      dateIn.addEventListener("change", function () {
-        t.date = ISO_DATE.test(dateIn.value) ? dateIn.value : "";
-        save(); refreshMeta();
-      });
-      if (whoIn) whoIn.addEventListener("change", function () {
-        var v = whoIn.value.trim().slice(0, 60), c = contactFor(v);
-        t.who = c ? c.name : v;
-        if (c) whoIn.value = c.name;
-        save(); refreshMeta();
-      });
-      if (whoIn) badges.push(whoIn);
-      if (isDel) badges.push(statusSelect(t, true));
-      badges.push(dateIn, overdueTag, share);
-      taskRefreshers[t.id] = refreshMeta;
-    }
-    if (badges.length) body.appendChild(h("div", { class: "task-meta" }, badges));
-
-    var move = h("select", { class: "move-select", "data-role": "move", "aria-label": T("moveTo") },
-      QIDS.map(function (o) {
-        return h("option", { value: o, text: o === q ? T("moveLabel") : QT(o).title, selected: o === q });
-      })
-    );
-    move.addEventListener("change", function () {
-      var to = move.value;
-      moveTask(t, to);
-      commit();
-      announce(T("movedTo", QT(to).title));
-      flash(to);
-    });
-
-    var actions = h("div", { class: "task-actions" }, [
-      move,
-      h("button", { class: "tiny-btn", type: "button", "data-role": "edit", "aria-label": T("editTask"), html: ICONS.edit,
-        onclick: function () { startEdit(t, text); } }),
-      h("button", { class: "tiny-btn", type: "button", "data-role": "del", "aria-label": T("deleteTask"), html: ICONS.trash,
-        onclick: function () { removeWhere(function (x) { return x.id === t.id; }, T("taskDeleted")); } })
-    ]);
-
-    li.appendChild(check);
-    li.appendChild(body);
-    li.appendChild(actions);
-    return li;
-  }
-
-  // Inline edit that does not rebuild the page (so clicks elsewhere still work)
-  function startEdit(t, textEl) {
-    if (!textEl.isConnected) return;
-    var field = h("input", { class: "task-edit", type: "text", value: t.text, maxlength: "200", "aria-label": T("editTask") });
-    var finished = false;
-    function finish(keep) {
-      if (finished) return;
-      finished = true;
-      var v = field.value.trim();
-      if (keep && v && v !== t.text) {
-        t.text = v;
-        textEl.textContent = v;
-        save();
-      }
-      if (field.isConnected) field.replaceWith(textEl);
-      var cb = textEl.parentNode && textEl.parentNode.parentNode && textEl.parentNode.parentNode.querySelector(".check");
-      if (cb) cb.setAttribute("aria-label", T("markDone", t.text));
-    }
-    field.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") { e.preventDefault(); finish(true); focusRole(t.id, "edit"); }
-      if (e.key === "Escape") { e.preventDefault(); finish(false); focusRole(t.id, "edit"); }
-    });
-    field.addEventListener("blur", function () { finish(true); });
-    textEl.replaceWith(field);
-    field.focus();
-    field.select();
-  }
-  function focusRole(id, role) {
-    var el = matrix.querySelector('.task[data-id="' + cssEscape(id) + '"] [data-role="' + role + '"]');
-    if (el) el.focus();
-  }
-
-  function renderProgress() {
-    var counted = tasks.filter(function (t) { return t.q !== "delete"; });
-    var done = counted.filter(function (t) { return t.done; }).length;
-    var total = counted.length;
-    var pct = total ? Math.round((done / total) * 100) : 0;
-    $("progressText").innerHTML = T("progressText", done, total);
-    $("barFill").style.width = pct + "%";
-    $("bar").setAttribute("aria-valuenow", pct);
-    $("clearDone").disabled = !tasks.some(function (t) { return t.done; });
-    $("progress").hidden = tasks.length === 0;
-    $("starter").hidden = tasks.length > 0 || archive.length > 0;
-    renderReviewBanner();
-    if (typeof renderRemindBanner === "function") renderRemindBanner();
-    renderLmoBanner();
-    renderKjBanner();
-  }
-
-  function flash(q) {
-    var sec = matrix.querySelector('.quad[data-q="' + q + '"]');
-    if (!sec) return;
-    sec.classList.remove("flash");
-    void sec.offsetWidth;
-    sec.classList.add("flash");
-  }
-
-  /* ================================================================
-     Composer: guided triage
-     ================================================================ */
-  var autoUrgent = false;   // true when urgency was set by keyword detection, not by the user
-
-  function radioVal(name) {
-    var el = form.querySelector('input[name="' + name + '"]:checked');
-    return el ? el.value : null;
-  }
-  function setRadio(name, val) {
-    form.querySelectorAll('input[name="' + name + '"]').forEach(function (r) { r.checked = val !== null && r.value === val; });
-  }
-  function needsOther() { return radioVal("urgent") === "1" && radioVal("important") === "0"; }
-
-  // Returns the quadrant, or null if questions are unanswered
-  function currentQuadrant() {
-    var u = radioVal("urgent"), i = radioVal("important");
-    if (u === null || i === null) return null;
-    if (u === "1" && i === "1") return "do";
-    if (i === "1") return "schedule";
-    if (u === "1") {
-      var o = radioVal("other");
-      if (o === null) return null;
-      return o === "1" ? "delegate" : "do";
-    }
-    return "delete";
-  }
-
-  function renderDestination() {
-    $("qOther").hidden = !needsOther();
-    if (!needsOther()) setRadio("other", null);
-    var q = currentQuadrant();
-    var dest = $("destination");
-    dest.textContent = "";
-    if (!q) {
-      dest.appendChild(h("span", { class: "dest-hint", text: T("answerFirst") }));
-      return;
-    }
-    dest.appendChild(document.createTextNode(T("goesTo")));
-    var pill = h("span", { class: "pill", text: QT(q).title });
-    pill.style.setProperty("--q", "var(--" + q + "-text)");
-    pill.style.setProperty("--q-tint", "var(--" + q + "-tint)");
-    dest.appendChild(pill);
-    ["qUrgent", "qImportant", "qOther"].forEach(function (id) { $(id).classList.remove("missing"); });
-  }
-
-  function keywordRegex() {
-    var words = I18N.en.kw.concat(I18N.ms.kw).map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); });
-    words.sort(function (a, b) { return b.length - a.length; });
-    return new RegExp("(^|[^\\p{L}])(" + words.join("|") + ")(?=$|[^\\p{L}])", "iu");
-  }
-  var KW = keywordRegex();
-
-  function detectKeywords() {
-    var m = input.value.match(KW);
-    var det = $("detect");
-    if (m && (radioVal("urgent") === null || autoUrgent)) {
-      setRadio("urgent", "1");
-      autoUrgent = true;
-      det.textContent = T("detected", m[2]);
-      det.hidden = false;
-      renderDestination();
-    } else if (!m && autoUrgent) {
-      setRadio("urgent", null);
-      autoUrgent = false;
-      det.hidden = true;
-      renderDestination();
-    }
-  }
-
-  function resetComposer() {
-    input.value = "";
-    setRadio("urgent", null); setRadio("important", null); setRadio("other", null);
-    autoUrgent = false;
-    $("detect").hidden = true;
-    renderDestination();
-  }
-
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    var q = currentQuadrant();
-    if (!q) {
-      var missing = [];
-      if (radioVal("urgent") === null) missing.push("qUrgent");
-      if (radioVal("important") === null) missing.push("qImportant");
-      if (needsOther() && radioVal("other") === null) missing.push("qOther");
-      missing.forEach(function (id) { $(id).classList.add("missing"); });
-      announce(T("needAnswers"));
-      var first = $(missing[0]).querySelector("input");
-      if (first) first.focus();
-      return;
-    }
-    var t = normalize({ id: uid(), text: text, q: q, done: false, created: Date.now(), origin: q,
-      reactive: q === "do" && radioVal("urgent") === "1" && radioVal("important") === "0" });
-    tasks.push(t);
-    resetComposer();
-    commit();
-    flash(q);
-    announce(T("addedTo", QT(q).title));
-    if (q === "schedule") focusRole(t.id, "date");
-    else if (q === "delegate") focusRole(t.id, "who");
-    else input.focus();
-  });
-
-  form.addEventListener("change", function (e) {
-    if (e.target.name === "urgent") { autoUrgent = false; $("detect").hidden = true; }
-    renderDestination();
-  });
-  input.addEventListener("input", detectKeywords);
-
-  /* ================================================================
-     Removing, undo, toast
-     ================================================================ */
-  var lastRemoved = null, toastTimer = null;
-
-  function removeWhere(predicate, message) {
-    var removed = [], archivedIds = [];
-    tasks = tasks.filter(function (t) {
-      if (!predicate(t)) return true;
-      removed.push(t);
-      // Finished tasks and tasks let go from the Delete box are kept for the weekly Insight
-      if (t.done || t.q === "delete") {
-        var copy = normalize(t);
-        copy.archivedAt = Date.now();
-        if (!t.done) copy.dropped = true;
-        archive.push(copy);
-        archivedIds.push(copy.id);
-      }
-      return false;
-    });
-    if (!removed.length) return;
-    lastRemoved = { tasks: removed, archivedIds: archivedIds };
-    commit();
-    showToast(message, true);
-  }
-
-  function showToast(message, undoable) {
+  /* ---------- Toast (one action button: Batal / Hantar sekarang) ---------- */
+  var toastTimer = null, toastAct = null;
+  function toast(message, actLabel, act) {
     $("toastText").textContent = message;
-    $("toastUndo").hidden = !undoable;
-    if (!undoable) lastRemoved = null;
+    var b = $("toastUndo");
+    b.hidden = !actLabel; b.textContent = actLabel || "";
+    toastAct = act || null;
     $("toast").hidden = false;
-    startToastTimer();
+    startToastTimer(actLabel ? 8000 : 4500);
   }
-  function startToastTimer() {
+  function showToast(message) { toast(message); }
+  function startToastTimer(ms) {
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { $("toast").hidden = true; lastRemoved = null; }, 8000);
+    toastTimer = setTimeout(function () { $("toast").hidden = true; toastAct = null; }, ms || 6000);
   }
   ["mouseenter", "focusin"].forEach(function (ev) { $("toast").addEventListener(ev, function () { clearTimeout(toastTimer); }); });
-  ["mouseleave", "focusout"].forEach(function (ev) { $("toast").addEventListener(ev, startToastTimer); });
-
+  ["mouseleave", "focusout"].forEach(function (ev) { $("toast").addEventListener(ev, function () { startToastTimer(); }); });
   $("toastUndo").addEventListener("click", function () {
-    if (lastRemoved) {
-      var ids = Object.create(null);
-      lastRemoved.archivedIds.forEach(function (id) { ids[id] = true; });
-      archive = archive.filter(function (a) { return !ids[a.id]; });
-      tasks = tasks.concat(lastRemoved.tasks);
-      lastRemoved = null;
-      commit();
-    }
-    $("toast").hidden = true;
+    var act = toastAct;
+    $("toast").hidden = true; toastAct = null;
+    if (act) act();
   });
 
-  $("clearDone").addEventListener("click", function () {
-    var n = tasks.filter(function (t) { return t.done; }).length;
-    removeWhere(function (t) { return t.done; }, T("tasksCleared", n));
+  /* ---------- Sheets (native <dialog>): focus goes back to whatever opened them ---------- */
+  var SHEETS = ["dlgAdd", "dlgPick", "dlgTask", "sendDlg", "dlgPic", "dlgConfirm"];
+  function openSheet(id, opener, focusEl) {
+    var dlg = $(id);
+    if (!dlg.open) {
+      dlg._ret = opener || document.activeElement;
+      dlg._handoff = false;
+      if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+    }
+    var f = focusEl || dlg.querySelector("h2[tabindex]");
+    if (f) f.focus();
+  }
+  function closeSheet(id, handoff) {
+    var dlg = $(id);
+    if (!dlg.open) return null;
+    dlg._handoff = !!handoff;
+    var ret = dlg._ret;
+    if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
+    return ret;
+  }
+  // Put focus back on the opener, or on its replacement after a re-render (same data-k), or on the view heading
+  function restoreFocus(el) {
+    if (el && el.isConnected && el.offsetParent !== null && !el.disabled) { el.focus(); return; }
+    var k = el && el.getAttribute && el.getAttribute("data-k");
+    var alt = k ? document.querySelector('[data-k="' + cssEscape(k) + '"]') : null;
+    if (!alt && k && k.indexOf("ack-") === 0) alt = document.querySelector('[data-k="row-' + cssEscape(k.slice(4)) + '"]');
+    if (alt && alt.offsetParent !== null) { alt.focus(); return; }
+    var hd = document.querySelector("main section:not([hidden]) h1");
+    if (hd) { hd.setAttribute("tabindex", "-1"); hd.focus(); }
+  }
+  SHEETS.forEach(function (id) {
+    var dlg = $(id);
+    dlg.addEventListener("click", function (e) {
+      if (e.target === dlg || e.target.closest("[data-close]")) closeSheet(id);
+    });
+    dlg.addEventListener("close", function () {
+      if (id === "sendDlg") renderAll();
+      if (dlg._handoff) return;
+      if (!document.querySelector("dialog[open]")) restoreFocus(dlg._ret);
+    });
   });
-
-  /* ================================================================
-     Insight: "Where did my time go?"
-     ================================================================ */
-  function insightData() {
-    var now = Date.now();
-    var all = tasks.concat(archive);
-    var done = all.filter(function (x) { return x.done && x.doneAt; });
-    var cur = done.filter(function (x) { return x.doneAt > now - 7 * DAY; });
-    var prev = done.filter(function (x) { return x.doneAt <= now - 7 * DAY && x.doneAt > now - 14 * DAY; });
-    function count(list) {
-      var c = { "do": 0, schedule: 0, delegate: 0, "delete": 0 };
-      list.forEach(function (x) { c[x.doneQ || x.q]++; });
-      return c;
-    }
-    var c = count(cur), pc = count(prev);
-    var total = cur.length;
-    var planned = total ? Math.round((c.schedule / total) * 100) : 0;
-    var reactive = total ? Math.round(((c["do"] + c.delegate) / total) * 100) : 0;
-    var prevPlanned = prev.length ? Math.round((pc.schedule / prev.length) * 100) : null;
-
-    var promoted = all.filter(function (x) {
-      return x.moves.some(function (m) { return m.auto && m.at > now - 7 * DAY; });
-    }).length;
-    var dropped = archive.filter(function (x) { return x.dropped && x.archivedAt > now - 7 * DAY; }).length;
-    var onlyYou = cur.filter(function (x) { return x.reactive; }).length;
-    var noDate = tasks.filter(function (x) { return x.q === "schedule" && !x.done && !x.date; }).length;
-
-    // Per-day breakdown, oldest first
-    var days = [];
-    for (var i = 6; i >= 0; i--) {
-      var d = new Date(now - i * DAY), key = todayISO(d);
-      var list = cur.filter(function (x) { return todayISO(x.doneAt) === key; });
-      days.push({ label: T("days")[d.getDay()], counts: count(list), total: list.length, today: i === 0 });
-    }
-    return { total: total, counts: c, planned: planned, reactive: reactive, prevPlanned: prevPlanned,
-      promoted: promoted, dropped: dropped, onlyYou: onlyYou, noDate: noDate, days: days };
+  function topSheet() {
+    for (var i = SHEETS.length - 1; i >= 0; i--) if ($(SHEETS[i]).open) return SHEETS[i];
+    return null;
   }
 
-  function renderInsight() {
-    var d = insightData();
-    var root = $("insightBody");
-    root.textContent = "";
+  /* ================================================================
+     Views: Mesyuarat | Last Man Out | Lagi
+     ================================================================ */
+  var view = "mesyuarat";
+  function showView(v, focus) {
+    view = v === "lmo" || v === "lagi" ? v : "mesyuarat";
+    ["mesyuarat", "lmo", "lagi"].forEach(function (k) { $("view-" + k).hidden = k !== view; });
+    document.querySelectorAll(".nav-btn").forEach(function (b) {
+      if (b.getAttribute("data-view") === view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+    });
+    $("fabWrap").hidden = view !== "mesyuarat";
+    if (view === "lmo") renderLmoTab();
+    if (view === "lagi") renderMore();
+    if (focus) { $("main").focus({ preventScroll: true }); window.scrollTo(0, 0); }
+  }
+  document.querySelectorAll(".nav-btn").forEach(function (b) {
+    b.addEventListener("click", function () { showView(b.getAttribute("data-view"), true); });
+  });
+  function renderAll() {
+    renderHome();
+    renderLmoBanner();
+    renderKjBanner();
+    if (view === "lmo") renderLmoTab();
+    if (view === "lagi") renderMore();
+  }
+  function render() { renderAll(); }   // name used by the contacts and rota code
 
-    function tile(value, label, help, cls) {
-      return h("div", { class: "tile " + (cls || "") }, [
-        h("p", { class: "tile-value", text: value }),
-        h("p", { class: "tile-label", text: label }),
-        h("p", { class: "tile-help", text: help })
-      ]);
+  /* ================================================================
+     Mesyuarat (home): one list grouped by status
+     ================================================================ */
+  var GROUPS = [
+    { key: "nopic", title: "gNoPic", help: "gNoPicHelp", dot: "amber" },
+    { key: "unsent", title: "gUnsent", help: "gUnsentHelp", dot: "grey" },
+    { key: "waiting", title: "gWaiting", help: "gWaitingHelp", dot: "amber" },
+    { key: "knows", title: "gKnows", help: "gKnowsHelp", dot: "green" },
+    { key: "done", title: "gDone", help: "gDoneHelp", dot: "green" }
+  ];
+  function byStage() {
+    var by = { nopic: [], unsent: [], waiting: [], knows: [], done: [] }, cutoff = Date.now() - DONE_DAYS * DAY;
+    tasks.forEach(function (t) { by[stage(t)].push(t); });
+    archive.forEach(function (t) { if (t.done && !t.dropped && (t.doneAt || 0) > cutoff) by.done.push(t); });
+    ["nopic", "unsent", "waiting", "knows"].forEach(function (k) { by[k].sort(sortOpen); });
+    by.done.sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); });
+    return by;
+  }
+  function picsOf(list) {
+    var seen = Object.create(null), n = 0;
+    list.forEach(function (t) { var k = t.who.toLowerCase(); if (!seen[k]) { seen[k] = true; n++; } });
+    return n;
+  }
+  function renderHeadline(by) {
+    var hl = $("headline"), late = tasks.filter(isLate).length, pics = picsOf(by.unsent);
+    var open = by.nopic.length + by.unsent.length + by.waiting.length + by.knows.length;
+    hl.textContent = "";
+    hl.hidden = !open && !by.done.length;
+    var cls, icon, big, sub = [];
+    if (pics) { cls = "ico-grey"; icon = ICONS.person; big = T("hlUnsent", pics); }
+    else if (by.waiting.length) { cls = "ico-amber"; icon = ICONS.send; big = T("hlAllSent"); }
+    else { cls = "ico-green"; icon = ICONS.check; big = T("hlAllKnow"); }
+    if (by.waiting.length) sub.push(T("hlWaiting", by.waiting.length));
+    if (late) sub.push(T("hlLate", late));
+    if (by.nopic.length) sub.push(T("hlNoPic", by.nopic.length));
+    if (!sub.length) sub.push(T("hlNoLate"));
+    hl.appendChild(h("span", { class: "headline-ico " + cls, html: icon }));
+    hl.appendChild(h("div", null, [h("p", { class: "big", text: big }), sub.length ? h("p", { class: "sub", text: sub.join(" · ") }) : null]));
+  }
+  function rowEl(t, inPic) {
+    var st = stage(t), late = isLate(t), meta = [], pills = [];
+    if (!inPic) meta.push(h("span", { class: "who", text: t.who || T("noPic") }));
+    if (t.date && st !== "done") meta.push(h("span", { class: "mi", html: ICONS.calS + escapeHtml(dueText(t.date)) }));
+    if (st === "waiting") meta.push(h("span", { class: "mi", html: ICONS.send + escapeHtml(T("sentAgo", ago(t.notifiedAt))) }));
+    if (st === "done") meta.push(h("span", { class: "mi", html: ICONS.check + escapeHtml(T("doneOn", shortDay(todayISO(t.doneAt)))) }));
+    if (late) pills.push(pill("red", T("lateN", lateDays(t)), ICONS.alert));
+    else if (t.date && st !== "done" && daysUntil(t.date) <= 1) pills.push(pill("amber", daysUntil(t.date) === 0 ? T("pillToday") : T("pillTomorrow")));
+    if (needsHelp(t) && st !== "done") pills.push(pill("amber", T("needHelp"), ICONS.help));
+    if (st === "knows" && t.ackVia === "link") pills.push(pill("green", T("ackByLink"), ICONS.check));
+    if (inPic) pills.push(st === "unsent" ? pill("grey", T("gUnsent")) : st === "waiting" ? pill("amber", T("gWaiting")) :
+      st === "knows" ? pill("green", T("knows"), ICONS.check) : pill("green", T("gDone"), ICONS.check));
+    var label = t.text + ", " + (t.who || T("noPic")) + (late ? ", " + T("lateN", lateDays(t)).toLowerCase() : "") + (st === "done" ? ", " + T("gDone").toLowerCase() : "");
+    var isArch = archive.indexOf(t) >= 0;   // done long ago in the earlier version: shown, not opened
+    var inner = [h("span", { class: "row-title", text: t.text }), h("span", { class: "row-meta" }, meta.concat(pills))];
+    var main = isArch ? h("div", { class: "row-main" }, inner)
+      : h("button", { class: "row-main", type: "button", "data-k": (inPic ? "prow-" : "row-") + t.id, "aria-label": label,
+        onclick: function (e) { if (inPic) { var ret = closeSheet("dlgPic", true); openTask(t.id, ret); } else openTask(t.id, e.currentTarget); } }, inner);
+    var extra = [];
+    if (!inPic && st === "waiting") extra.push(svgBtn("btn-ok btn-sm", ICONS.check, T("knows"), { "data-k": "ack-" + t.id, "aria-label": T("knowsAria", t.who, t.text),
+      onclick: function () { markKnows(t, "su"); } }));
+    if (!inPic && st === "nopic") {
+      extra.push(svgBtn("btn-sm", ICONS.person, T("pickPic"), { "data-k": "pick-" + t.id, "aria-label": T("pickPic") + ": " + t.text, onclick: function (e) { openPick(t, e.currentTarget); } }));
+      extra.push(svgBtn("btn-sm btn-danger-quiet", ICONS.trash, T("del"), { "data-k": "del-" + t.id, "aria-label": T("delTask") + ": " + t.text, onclick: function (e) { askDelete(t, e.currentTarget); } }));
     }
-    root.appendChild(h("div", { class: "tiles" }, [
-      tile(String(d.total), INS("finished"), T("last7")),
-      tile(d.planned + "%", INS("planned"), INS("plannedHelp"), "t-schedule"),
-      tile(d.reactive + "%", INS("reactive"), INS("reactiveHelp"), "t-do"),
-      tile(String(d.dropped), INS("letGo"), INS("letGoHelp"), "t-delete")
-    ]));
+    var li = h("li", { class: "row" + (late ? " late" : "") + (st === "done" ? " done" : "") + (extra.length ? " has-act" : "") }, [main]);
+    if (extra.length) li.appendChild(h("div", { class: "row-acts" }, extra));
+    else if (!isArch) li.appendChild(h("span", { html: ICONS.chev }));
+    return li;
+  }
+  function renderHome() {
+    var root = $("groups"), a = document.activeElement;
+    var keepK = a && $("view-mesyuarat").contains(a) ? a.getAttribute("data-k") : null;
+    var by = byStage();
+    renderHeadline(by);
+    root.textContent = "";
+    var any = tasks.length || by.done.length;
+    if (!any) {
+      root.appendChild(h("div", { class: "empty-note" }, [
+        h("p", { text: T("emptyTasks") }),
+        h("button", { class: "btn btn-quiet", type: "button", "data-k": "sample", text: T("trySample"), onclick: function () { loadSample(true); } })
+      ]));
+    }
+    GROUPS.forEach(function (g) {
+      var list = by[g.key];
+      if (!list.length) return;   // an empty group adds nothing: the headline already says so
+      var hid = "g-" + g.key;
+      var title = h("h2", { class: "group-title", id: hid }, [
+        h("span", { class: "dot dot-" + g.dot, "aria-hidden": "true" }), document.createTextNode(T(g.title) + " "),
+        h("span", { class: "count", text: String(list.length), "aria-label": T("nTasks", list.length) })
+      ]);
+      var ul = h("ul", { class: "list" }, list.map(function (t) { return rowEl(t, false); }));
+      if (g.key === "done") {
+        var det = h("details", { class: "group", open: !!meta.doneOpen }, [
+          h("summary", { class: "group-head", "data-k": "done-sum" }, [title, h("span", { class: "chev", html: ICONS.chev })]),
+          h("p", { class: "group-help", text: T(g.help) }), ul
+        ]);
+        det.addEventListener("toggle", function () { meta.doneOpen = det.open; saveMeta(); });
+        root.appendChild(det);
+        return;
+      }
+      var sec = h("section", { class: "group", "aria-labelledby": hid }, [h("div", { class: "group-head" }, [title]), h("p", { class: "group-help", text: T(g.help) })]);
+      if (g.key === "unsent") sec.appendChild(h("div", { class: "group-action" }, [
+        svgBtn("btn-primary", ICONS.send, T("sendToN", picsOf(list)), { "data-k": "sendall", onclick: function (e) { openSendAll(e.currentTarget); } })
+      ]));
+      sec.appendChild(ul);
+      root.appendChild(sec);
+    });
+    if (keepK) {
+      var el = root.querySelector('[data-k="' + cssEscape(keepK) + '"]');
+      if (!el && keepK.indexOf("ack-") === 0) el = root.querySelector('[data-k="row-' + cssEscape(keepK.slice(4)) + '"]');
+      if (el) el.focus();
+    }
+  }
 
-    if (!d.total) {
-      root.appendChild(h("p", { class: "ins-empty", text: INS("noData") }));
+  /* ---------- "PIC knows" (option A: the SU ticks it; phase 2 adds via = "link") ---------- */
+  function markKnows(t, via) {
+    var before = { ackAt: t.ackAt, ackVia: t.ackVia };
+    t.ackAt = Date.now(); t.ackVia = via || "su";
+    save();
+    renderAll(); refreshOpenSheets();
+    announce(T("knowsDone", firstName(t.who)));
+    toast(T("knowsDone", firstName(t.who)), T("undo"), function () {
+      t.ackAt = before.ackAt; t.ackVia = before.ackVia; save(); renderAll(); refreshOpenSheets();
+    });
+  }
+  function markSent(list, via, src) {
+    var now = Date.now();
+    list.forEach(function (t) {
+      if (!t.notifiedAt) { t.notifiedAt = now; t.sentVia = via; }
+      if (src && !t.src) t.src = src;
+    });
+    save();
+  }
+  function refreshOpenSheets() {
+    if ($("dlgTask").open && curTask) renderTask(curTask);
+    if ($("dlgPic").open && curPic) renderPic(curPic);
+  }
+
+  /* ================================================================
+     PIC picker (used by "Tugasan baharu" and "Pilih PIC")
+     ================================================================ */
+  function recentPics() {
+    var seen = Object.create(null), out = [];
+    tasks.concat(archive).filter(function (t) { return t.who; }).sort(function (a, b) { return b.created - a.created; }).forEach(function (t) {
+      var c = contactFor(t.who), n = c ? c.name : t.who, k = n.toLowerCase();
+      if (!seen[k] && out.length < 3) { seen[k] = true; out.push(n); }
+    });
+    return out;
+  }
+  function makePicker(root, onPick) {
+    var state = { who: "" }, search;
+    function pick(name) { state.who = name; draw(); if (onPick) onPick(name); }
+    function draw() {
+      var a = document.activeElement, keepK = a && root.contains(a) ? a.getAttribute("data-k") : null;
+      root.textContent = "";
+      if (state.who) {
+        var c = contactFor(state.who), pills = [];
+        if (!c) pills.push(pill("amber", T("fNotContact")));
+        else if (!c.phone) pills.push(pill("amber", T("noPhone")));
+        root.appendChild(h("div", { class: "picked" }, [
+          h("span", { class: "headline-ico ico-grey small", html: ICONS.person }),
+          h("strong", { text: c ? c.name : state.who }),
+          h("span", { class: "picked-pills" }, pills),
+          !c ? h("button", { class: "btn btn-quiet btn-sm", type: "button", "data-k": "pk-save", text: T("fSaveContact"), onclick: function () {
+            contacts = cleanContacts(contacts.concat([{ name: state.who }]));
+            saveContacts();
+            toast(T("fContactSaved", state.who));
+            draw();
+          } }) : null,
+          h("button", { class: "btn btn-quiet btn-sm", type: "button", "data-k": "pk-change", text: T("fChange"), "aria-label": T("fChange") + ": " + state.who,
+            onclick: function () { state.who = ""; draw(); if (onPick) onPick(""); search.focus(); } })
+        ]));
+      } else {
+        var recent = recentPics();
+        if (recent.length) root.appendChild(h("div", { class: "chips", role: "group", "aria-label": T("fRecent") }, recent.map(function (n) {
+          return h("button", { class: "chip", type: "button", "data-k": "pk-r-" + n, text: n, onclick: function () { pick(n); } });
+        })));
+        search = h("input", { class: "input", type: "search", autocomplete: "off", "data-k": "pk-search", placeholder: T("fWhoSearch"), "aria-label": T("fWhoSearch") });
+        var results = h("ul", { class: "results", hidden: true });
+        function drawResults() {
+          var q = search.value.trim(), ql = q.toLowerCase();
+          results.textContent = "";
+          results.hidden = !q;
+          if (!q) return;
+          var hits = contacts.filter(function (c) { return c.name.toLowerCase().indexOf(ql) >= 0; })
+            .sort(function (a, b) { return a.name.localeCompare(b.name); }).slice(0, 6);
+          hits.forEach(function (c) {
+            results.appendChild(h("li", null, [h("button", { type: "button", onclick: function () { pick(c.name); } }, [
+              h("span", { text: c.name }), h("small", { text: [c.role, c.prog].filter(Boolean).join(" · ") || (c.phone ? "" : T("noPhone")) })
+            ])]));
+          });
+          if (!hits.some(function (c) { return c.name.toLowerCase() === ql; })) {
+            results.appendChild(h("li", null, [h("button", { type: "button", onclick: function () { pick(q.slice(0, 60)); } }, [
+              h("span", { text: T("fUseName", q.slice(0, 60)) }), h("small", { text: T("fUseNameSub") })
+            ])]));
+          }
+        }
+        search.addEventListener("input", drawResults);
+        search.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); var b = results.querySelector("button"); if (b) b.click(); }
+        });
+        root.appendChild(search);
+        root.appendChild(results);
+      }
+      if (keepK) { var el = root.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el) el.focus(); }
+    }
+    draw();
+    return {
+      get: function () { return state.who; },
+      set: function (n) { state.who = n || ""; draw(); },
+      focus: function () { var el = root.querySelector("input, button"); if (el) el.focus(); },
+      redraw: draw
+    };
+  }
+
+  /* ================================================================
+     Tugasan baharu: Apa · Siapa PIC · Bila
+     ================================================================ */
+  var WHEN = ["today", "tomorrow", "fri", "nextweek", "pick", "none"];
+  var WHEN_KEY = { today: "dToday", tomorrow: "dTomorrow", fri: "dFri", nextweek: "dNextWeek", pick: "dPick", none: "dNone" };
+  var addState = { when: "fri", touched: false }, addPicker = null;
+  function whenDate(k) {
+    var today = todayISO(), d = dow(today);
+    if (k === "today") return today;
+    if (k === "tomorrow") return addDays(today, 1);
+    if (k === "fri") return addDays(today, (5 - d + 7) % 7);      // this week's Friday (today if Friday)
+    if (k === "nextweek") return addDays(today, ((8 - d) % 7 || 7) + 4);   // next week's Friday
+    if (k === "pick") return ISO_DATE.test($("fDate").value) ? $("fDate").value : "";
+    return "";
+  }
+  function renderWhen() {
+    var box = $("whenChips");
+    box.textContent = "";
+    WHEN.forEach(function (k) {
+      var d = k !== "pick" && k !== "none" ? whenDate(k) : "";
+      var b = h("button", { class: "chip", type: "button", "aria-pressed": String(addState.when === k), "data-when": k }, [
+        document.createTextNode(T(WHEN_KEY[k])), d ? h("span", { class: "chip-date", text: shortDate(d, { day: "numeric", month: "short" }) }) : null
+      ]);
+      b.addEventListener("click", function () {
+        addState.when = k; addState.touched = true; renderWhen();
+        if (k === "pick") $("fDate").focus(); else box.querySelector('[data-when="' + k + '"]').focus();
+      });
+      box.appendChild(b);
+    });
+    $("fDate").hidden = addState.when !== "pick";
+  }
+  // Date words in the text ("esok", "hari ini", "minggu depan") pick the date chip, unless she chose one herself
+  function detectDateWords() {
+    if (addState.touched) return;
+    var v = " " + $("fWhat").value.toLowerCase() + " ", found = null;
+    ["nextweek", "tomorrow", "today"].forEach(function (k) {
+      if (found) return;
+      I18N.ms.dateKw[k].concat(I18N.en.dateKw[k]).forEach(function (w) {
+        if (!found && new RegExp("(^|[^\\p{L}])" + w + "(?=$|[^\\p{L}])", "u").test(v)) found = k;
+      });
+    });
+    var want = found || "fri";
+    if (want !== addState.when) { addState.when = want; renderWhen(); }
+  }
+  $("fWhat").addEventListener("input", function () { $("errWhat").hidden = true; $("fWhat").removeAttribute("aria-invalid"); detectDateWords(); });
+  function openAdd(opener) {
+    if (view !== "mesyuarat") showView("mesyuarat");
+    addState = { when: "fri", touched: false };
+    $("fWhat").value = ""; $("fDate").value = "";
+    $("errWhat").hidden = true; $("errWho").hidden = true; $("fWhat").removeAttribute("aria-invalid");
+    addPicker = makePicker($("addPicker"), function () { $("errWho").hidden = true; });
+    renderWhen();
+    openSheet("dlgAdd", opener, $("fWhat"));
+  }
+  function saveAdd(more) {
+    var text = $("fWhat").value.trim().slice(0, 200), who = addPicker.get(), ok = true;
+    $("errWhat").hidden = !!text; $("errWho").hidden = !!who;
+    if (!text) { $("fWhat").setAttribute("aria-invalid", "true"); ok = false; }
+    if (!ok || !who) {
+      if (!text) $("fWhat").focus(); else addPicker.focus();
+      announce(!text ? T("errWhat") : T("errWho"));
       return;
     }
+    var c = contactFor(who);
+    var t = normalize({ id: uid(), text: text, q: "delegate", who: c ? c.name : who, date: whenDate(addState.when), created: Date.now() });
+    tasks.push(t);
+    save();
+    renderAll();
+    if (more) {
+      var keep = addState.when, keepDate = $("fDate").value;
+      $("fWhat").value = "";
+      addPicker.set("");
+      addState = { when: keep, touched: true };
+      $("fDate").value = keepDate;
+      renderWhen();
+      $("fWhat").focus();
+      toast(T("savedNext"));
+      announce(T("savedNext"));
+    } else {
+      var ret = closeSheet("dlgAdd", true);
+      restoreFocus(ret);
+      toast(T("savedUnsent", firstName(t.who)), T("sendNow"), function () { openTask(t.id, ret); });
+      announce(T("savedUnsent", firstName(t.who)));
+    }
+  }
+  $("saveAdd").addEventListener("click", function () { saveAdd(false); });
+  $("saveMore").addEventListener("click", function () { saveAdd(true); });
+  $("addForm").addEventListener("submit", function (e) { e.preventDefault(); saveAdd(false); });
+  document.querySelectorAll("[data-add]").forEach(function (b) { b.addEventListener("click", function () { openAdd(b); }); });
 
-    // Balance score
-    var delta = d.prevPlanned === null ? null : d.planned - d.prevPlanned;
-    var bal = h("div", { class: "balance" }, [
-      h("div", null, [
-        h("p", { class: "ins-h", text: INS("balance") }),
-        h("p", { class: "ins-small", text: INS("balanceHelp") })
-      ]),
-      h("div", { class: "balance-score" }, [
-        h("span", { class: "big", text: String(d.planned) }),
-        delta === null ? null : h("span", { class: "delta " + (delta > 0 ? "up" : delta < 0 ? "down" : ""), text: (delta > 0 ? "\u25B2 " : delta < 0 ? "\u25BC " : "") + INS("vsLast", delta) })
-      ])
-    ]);
-    root.appendChild(bal);
+  /* ---------- Pilih PIC for a task without one ---------- */
+  var pickTask = null, pickPicker = null;
+  function openPick(t, opener) {
+    pickTask = t;
+    $("pickTask").textContent = t.text;
+    $("errPick").hidden = true;
+    pickPicker = makePicker($("pickPicker"), function () { $("errPick").hidden = true; });
+    openSheet("dlgPick", opener);
+  }
+  $("pickSave").addEventListener("click", function () {
+    var who = pickPicker.get();
+    if (!who) { $("errPick").hidden = false; pickPicker.focus(); announce(T("errWho")); return; }
+    var c = contactFor(who);
+    pickTask.who = c ? c.name : who;
+    save();
+    var t = pickTask, ret = closeSheet("dlgPick", true);
+    renderAll(); refreshOpenSheets();
+    toast(T("picSet", t.who));
+    if ($("dlgTask").open) $("taskTitle").focus(); else openTask(t.id, ret);
+  });
 
-    // Stacked mix bar
-    var stack = h("div", { class: "stack", role: "img", "aria-label": QIDS.map(function (q) { return QT(q).title + " " + d.counts[q]; }).join(", ") });
-    var legend = h("ul", { class: "legend" });
-    QIDS.forEach(function (q) {
-      var n = d.counts[q];
-      if (n) {
-        var seg = h("span", { class: "seg-" + q, title: QT(q).title + ": " + n });
-        seg.style.flexGrow = n;
-        stack.appendChild(seg);
-      }
-      legend.appendChild(h("li", null, [h("i", { class: "seg-" + q }), document.createTextNode(QT(q).title + " " + n)]));
+  /* ================================================================
+     Task detail: 4 steps; the current step holds the one next action
+     ================================================================ */
+  var curTask = null;
+  function taskMsg(t, c) {
+    var calUrl = t.date ? gcalUrl(t, c && c.email) : "";
+    return T("msgBody", c ? c.name : t.who, t.text, t.date ? longDate(t.date) : "", calUrl);
+  }
+  // WhatsApp / email buttons for one task. kind: "send" (first message or again) | "remind"
+  function taskButtons(t, kind, key) {
+    var c = contactFor(t.who), out = [], name = c ? c.name : t.who;
+    var msg = kind === "remind" ? T("remindMsg", name, t.text, t.date ? daysUntil(t.date) : 0, t.date ? longDate(t.date) : "") : taskMsg(t, c);
+    var subject = kind === "remind" ? T("remindSubject", t.text) : T("msgSubject", t.text);
+    function after(via) {
+      return function () {
+        if (kind === "remind") { t.remindedAt = Date.now(); save(); }
+        else markSent([t], via);
+        setTimeout(function () { renderAll(); renderTask(t); announce(T("sentOne", viaText(via), firstName(name))); }, 0);
+      };
+    }
+    var waLabel = kind === "remind" ? T("remindWa") : T("btnWa"), mailLabel = kind === "remind" ? T("remindEmail") : T("btnEmail");
+    var wa = c && c.phone ? waLink(c.phone, msg, waLabel, T("waAria", name, t.text), after("wa")) : contactFixButton(c, name, null, null, "phone");
+    var em = c && c.email ? mailLink(c.email, subject, msg, mailLabel, T("mailAria", name, t.text), after("email")) : null;
+    wa.setAttribute("data-k", key + "-wa");
+    out.push(wa);
+    if (em) { em.setAttribute("data-k", key + "-email"); out.push(em); }
+    return h("div", { class: "btn-row" }, out);
+  }
+  function peek(summary, content, open) {
+    return h("details", { class: "peek", open: !!open }, [h("summary", { text: summary })].concat(content));
+  }
+  function renderTask(t) {
+    curTask = t;
+    var st = stage(t), late = isLate(t), body = $("taskBody"), c = contactFor(t.who);
+    var a = document.activeElement, keepK = a && body.contains(a) ? a.getAttribute("data-k") : null;
+    $("taskSrc").textContent = t.src || T("taskEyebrow");
+    $("taskTitle").textContent = t.text;
+    body.textContent = "";
+    if (late) body.appendChild(h("div", { class: "alert alert-red", html: ICONS.alert + "<span>" + escapeHtml(T("lateBanner", lateDays(t), longDate(t.date))) + "</span>" }));
+    if (needsHelp(t) && st !== "done") body.appendChild(h("div", { class: "alert alert-amber", html: ICONS.help + "<span>" + escapeHtml(T("needHelp") + (t.statusNote ? ": " + t.statusNote : "")) + "</span>" }));
+
+    // Facts: PIC and due date
+    var due = h("input", { class: "input input-date", id: "dDue", type: "date", value: t.date, "data-k": "t-due" });
+    due.addEventListener("change", function () {
+      t.date = ISO_DATE.test(due.value) ? due.value : "";
+      save(); renderAll(); renderTask(t);
     });
-    root.appendChild(h("p", { class: "ins-h", text: INS("mix") }));
-    root.appendChild(stack);
-    root.appendChild(legend);
+    var picCell = t.who
+      ? [h("button", { class: "linkish", type: "button", "data-k": "t-pic", text: t.who, onclick: function () { var ret = closeSheet("dlgTask", true); openPic(t.who, ret); } }),
+        c ? (c.phone ? null : pill("amber", T("noPhone"))) : pill("amber", T("fNotContact"))]
+      : [pill("amber", T("noPic")), svgBtn("btn-sm", ICONS.person, T("pickPic"), { "data-k": "t-pick", onclick: function (e) { openPick(t, e.currentTarget); } })];
+    body.appendChild(h("dl", { class: "facts" }, [
+      h("dt", { text: "PIC" }), h("dd", null, picCell),
+      h("dt", null, [h("label", { for: "dDue", text: T("dueLabel") })]), h("dd", null, [due])
+    ]));
 
-    // Per-day columns
-    var max = Math.max.apply(null, d.days.map(function (x) { return x.total; }).concat([1]));
-    var cols = h("div", { class: "days", role: "img", "aria-label": d.days.map(function (x) { return x.label + " " + x.total; }).join(", ") });
-    d.days.forEach(function (day) {
-      var bar = h("div", { class: "day-bar" });
-      bar.style.height = Math.round((day.total / max) * 100) + "%";
-      QIDS.forEach(function (q) {
-        if (day.counts[q]) {
-          var s = h("span", { class: "seg-" + q });
-          s.style.flexGrow = day.counts[q];
-          bar.appendChild(s);
-        }
+    // Stepper
+    var steps = [{ done: true, title: T("stepRecorded"), sub: whenText(t.created) }];
+    var who = firstName(t.who);
+    if (!t.who) {
+      steps.push({ now: !t.done, title: T("stepPick"), act: !t.done ? [svgBtn("btn-primary", ICONS.person, T("pickPic"), { "data-k": "t-pick2", onclick: function (e) { openPick(t, e.currentTarget); } })] : null });
+    } else {
+      if (st === "unsent") {
+        var tell = [taskButtons(t, "send", "t-send")];
+        if (t.date) tell.push(h("a", { class: "btn", href: gcalUrl(t, c && c.email), target: "_blank", rel: "noopener", "data-k": "t-cal",
+          "aria-label": T("addToCal", t.text), html: ICONS.cal + "<span>" + escapeHtml(T("inviteCal")) + "</span>" }));
+        tell.push(peek(T("seeMsg"), [h("div", { class: "msg", text: taskMsg(t, c) })]));
+        steps.push({ now: true, title: T("stepTell"), sub: T("tellHint", who), act: tell });
+      } else if (t.notifiedAt) steps.push({ done: true, title: T("stepTold"), sub: viaText(t.sentVia) + " · " + whenText(t.notifiedAt) });
+      else steps.push({ done: true, title: T("stepTold") });   // marked "knows" without a message (old data)
+
+      if (st === "unsent") steps.push({ title: T("stepAck") });
+      else if (st === "waiting") {
+        var n = workdaysSince(t.notifiedAt), stale = n >= 2 || late;
+        var act = [svgBtn("btn-ok", ICONS.check, T("knowsLong"), { "data-k": "t-knows", onclick: function () { markKnows(t, "su"); } }),
+          h("p", { class: "hint", text: T("knowsHint") })];
+        if (stale) {
+          act.push(h("p", { class: "step-sub stale" }, [h("strong", { text: T("noReply", Math.max(n, 1)) }), document.createTextNode(" " + T("remindLead"))]));
+          act.push(taskButtons(t, "remind", "t-rem"));
+        } else act.push(peek(T("resend"), [taskButtons(t, "send", "t-again")]));
+        steps.push({ now: true, title: T("stepAck"), sub: T("notConfirmed", ago(t.notifiedAt)), act: act });
+      } else {
+        var by = t.ackVia === "link" ? T("ackByLink") : t.ackVia === "old-status" ? T("ackByOld") : T("ackBySu");
+        steps.push({ done: true, title: T("stepAck"), sub: by + (t.ackAt ? " · " + whenText(t.ackAt) : "") });
+      }
+    }
+    if (st === "done") steps.push({ done: true, title: T("stepDone"), sub: whenText(t.doneAt),
+      act: [h("button", { class: "btn btn-quiet btn-sm", type: "button", "data-k": "t-reopen", text: T("reopen"), onclick: function () {
+        setDone(t, false); save(); renderAll(); renderTask(t); announce(T("reopened")); $("taskTitle").focus();
+      } })] });
+    else if (st === "knows" || st === "nopic") steps.push({ now: st === "knows", title: T("stepDone"), sub: t.date ? T("dueOn", shortDay(t.date)) : "",
+      act: [svgBtn("btn-primary", ICONS.check, T("markDone"), { "data-k": "t-done", onclick: function () { doneTask(t); } })]
+        .concat(st === "knows" ? [peek(late ? T("remindLate") : T("askOrRemind"), [taskButtons(t, "remind", "t-rem2")], late)] : []) });
+    else steps.push({ title: T("stepDone") });
+
+    body.appendChild(h("h3", { class: "section-title", text: T("statusH") }));
+    body.appendChild(h("ol", { class: "steps" }, steps.map(function (s, i) {
+      var li = h("li", { class: "step" + (s.done ? " is-done" : "") + (s.now ? " is-now" : "") }, [
+        h("span", { class: "mark", "aria-hidden": "true", html: s.done ? ICONS.check : String(i + 1) }),
+        h("div", { class: "step-body" }, [
+          h("p", { class: "step-title" }, [document.createTextNode(s.title), s.done ? h("span", { class: "sr-only", text: " " + T("stepDoneSr") }) : null]),
+          s.sub ? h("p", { class: "step-sub", text: s.sub }) : null,
+          s.act ? h("div", { class: "step-act" }, s.act) : null
+        ])
+      ]);
+      if (s.now) li.setAttribute("aria-current", "step");
+      return li;
+    })));
+
+    // Needs help switch, edit text, delete
+    if (t.who && st !== "done") {
+      var sw = h("input", { class: "switch", type: "checkbox", id: "dHelp", role: "switch", checked: needsHelp(t), "data-k": "t-help" });
+      sw.addEventListener("change", function () {
+        t.status = sw.checked ? "blocked" : (t.status === "blocked" ? "" : t.status); t.statusAt = Date.now();
+        save(); renderAll(); renderTask(t);
       });
-      cols.appendChild(h("div", { class: "day" + (day.today ? " is-today" : "") }, [
-        h("span", { class: "day-n", text: day.total ? String(day.total) : "" }),
-        h("div", { class: "day-track" }, [bar]),
-        h("span", { class: "day-l", text: day.label })
+      body.appendChild(h("div", { class: "switch-row" }, [
+        h("label", { for: "dHelp" }, [h("strong", { text: T("needHelp") }), h("br"), h("span", { class: "hint", text: T("needHelpSub") })]), sw
+      ]));
+    }
+    var ta = h("textarea", { class: "input", maxlength: "200", "aria-label": T("editText"), "data-k": "t-text" });
+    ta.value = t.text;
+    body.appendChild(h("div", { class: "switch-row stack" }, [
+      peek(T("editText"), [ta, h("button", { class: "btn btn-sm", type: "button", "data-k": "t-textsave", text: T("editSave"), onclick: function () {
+        var v = ta.value.trim().slice(0, 200);
+        if (!v) { ta.focus(); return; }
+        t.text = v; save(); renderAll(); renderTask(t); announce(T("textSaved")); $("taskTitle").focus();
+      } })]),
+      h("button", { class: "btn btn-quiet btn-sm danger-text", type: "button", "data-k": "t-del", text: T("delTask"), onclick: function (e) { askDelete(t, e.currentTarget); } })
+    ]));
+    if (keepK) { var el = body.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el && el.offsetParent !== null) el.focus(); else $("taskTitle").focus(); }
+  }
+  function openTask(id, opener) {
+    var t = find(id);
+    if (!t) return;
+    renderTask(t);
+    openSheet("dlgTask", opener);
+  }
+  function doneTask(t) {
+    setDone(t, true);
+    save(); renderAll(); renderTask(t);
+    $("taskTitle").focus();
+    announce(T("doneToast"));
+    toast(T("doneToast"), T("undo"), function () { setDone(t, false); save(); renderAll(); refreshOpenSheets(); });
+  }
+
+  /* ---------- Delete (asks first) ---------- */
+  var delTask = null, lastRemoved = null;
+  function askDelete(t, opener) {
+    delTask = t;
+    $("confText").textContent = T("delConfirm", t.text);
+    openSheet("dlgConfirm", opener);
+  }
+  $("confYes").addEventListener("click", function () {
+    var t = delTask;
+    closeSheet("dlgConfirm", true);
+    var ret = closeSheet("dlgTask", true);
+    tasks = tasks.filter(function (x) { return x !== t; });
+    lastRemoved = t;
+    save(); renderAll();
+    restoreFocus(ret || $("dlgConfirm")._ret);
+    announce(T("taskDeleted"));
+    toast(T("taskDeleted"), T("undo"), function () {
+      if (lastRemoved === t && !find(t.id)) { tasks.push(t); save(); renderAll(); }
+    });
+  });
+
+  /* ================================================================
+     One PIC: their tasks, "Minta status", "Tanda semua sudah tahu"
+     ================================================================ */
+  var curPic = null;
+  function renderPic(name) {
+    curPic = name;
+    var c = contactFor(name), body = $("picBody"), k = name.toLowerCase();
+    var a = document.activeElement, keepK = a && body.contains(a) ? a.getAttribute("data-k") : null;
+    var mine = tasks.filter(function (t) { return t.who.toLowerCase() === k; });
+    var open = mine.filter(function (t) { return !t.done; }).sort(sortOpen), done = mine.filter(function (t) { return t.done; });
+    var waiting = open.filter(function (t) { return stage(t) === "waiting"; });
+    $("picRole").textContent = c ? [c.role, c.prog].filter(Boolean).join(" · ") || T("contactEyebrow") : T("fNotContact");
+    $("picTitle").textContent = c ? c.name : name;
+    body.textContent = "";
+    body.appendChild(h("p", { class: "muted pic-reach" }, [
+      document.createTextNode(c && c.phone ? "+" + c.phone : T("noPhone")), h("br"), document.createTextNode(c && c.email ? c.email : T("noEmail"))
+    ]));
+    if (!reachable(c)) body.appendChild(h("div", { class: "btn-row mb" }, [contactFixButton(c, name, null, { "data-k": "p-fix" })]));
+    body.appendChild(h("p", { class: "pic-count", text: T("tasksOpen", open.length) + (waiting.length ? " · " + T("waitingN", waiting.length) : "") }));
+    if (mine.length) body.appendChild(h("ul", { class: "list mb" }, open.concat(done).map(function (t) { return rowEl(t, true); })));
+    if (open.length && reachable(c)) {
+      var lines = open.slice().sort(sortByDue).map(function (t, i) {
+        return (i + 1) + ". *" + t.text + "*" + (t.date ? " (" + T("dueShort").toLowerCase() + ": " + longDate(t.date) + ")" : "");
+      }).join("\n");
+      var msg = T("askMsg", c.name, lines);
+      var mark = function () { open.forEach(function (t) { t.askedAt = Date.now(); }); save(); setTimeout(function () { announce(T("askSent", firstName(c.name))); }, 0); };
+      var btns = [];
+      if (c.phone) btns.push(waLink(c.phone, msg, T("askStatus"), T("waAria", c.name, T("askStatus")), mark));
+      if (c.email) btns.push(mailLink(c.email, T("askSubject"), msg, T("btnEmail"), T("mailAria", c.name, T("askStatus")), mark));
+      btns.forEach(function (b, i) { b.setAttribute("data-k", "p-ask-" + i); });
+      body.appendChild(h("h3", { class: "section-title", text: T("askStatus") }));
+      body.appendChild(h("p", { class: "hint mb-s", text: T("askStatusHint", firstName(c.name)) }));
+      body.appendChild(h("div", { class: "btn-row" }, btns));
+    }
+    if (waiting.length) body.appendChild(h("div", { class: "mt" }, [svgBtn("btn-ok", ICONS.check, T("allKnow", waiting.length), { "data-k": "p-all", onclick: function () {
+      var now = Date.now();
+      waiting.forEach(function (t) { t.ackAt = now; t.ackVia = "su"; });
+      save(); renderAll(); renderPic(name);
+      $("picTitle").focus();
+      announce(T("allKnowDone", waiting.length, firstName(name)));
+      toast(T("allKnowDone", waiting.length, firstName(name)), T("undo"), function () {
+        waiting.forEach(function (t) { if (t.ackAt === now) { t.ackAt = null; t.ackVia = ""; } });
+        save(); renderAll(); refreshOpenSheets();
+      });
+    } })]));
+    if (keepK) { var el = body.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el) el.focus(); }
+  }
+  function openPic(name, opener) { renderPic(name); openSheet("dlgPic", opener); }
+
+  /* ================================================================
+     Hantar kepada PIC: one message per person (a snapshot, so sent cards stay visible)
+     ================================================================ */
+  var sendSnap = [];
+  function picGroups() {
+    var groups = [], byKey = Object.create(null);
+    tasks.filter(function (t) { return stage(t) === "unsent"; }).sort(sortByDue).forEach(function (t) {
+      var c = contactFor(t.who), k = (c ? c.name : t.who).toLowerCase();
+      if (!byKey[k]) { byKey[k] = { name: c ? c.name : t.who, tasks: [], sent: null }; groups.push(byKey[k]); }
+      byKey[k].tasks.push(t);
+    });
+    return groups.sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  function groupMessage(g, from) {
+    var lines = g.tasks.map(function (t, i) {
+      return (i + 1) + ". *" + t.text + "*" + (t.date ? "\n   " + T("dueShort") + ": " + longDate(t.date) : "");
+    }).join("\n");
+    return T("groupBody", g.name, from, lines);
+  }
+  function renderSendAll() {
+    var root = $("sendList"), from = $("sendFrom").value.trim();
+    var a = document.activeElement, keepK = a && root.contains(a) ? a.getAttribute("data-k") : null;
+    var sent = sendSnap.filter(function (g) { return g.sent; }).length, total = sendSnap.length;
+    var prog = $("sendProgress");
+    prog.textContent = "";
+    if (total) {
+      var bar = h("span", { class: "bar", role: "progressbar", "aria-label": T("progressAria"), "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(sent) }, [h("span")]);
+      bar.firstChild.style.width = (sent / total * 100) + "%";
+      prog.appendChild(h("span", { text: T("sentProgress", sent, total) }));
+      prog.appendChild(bar);
+    }
+    root.textContent = "";
+    if (!total) { root.appendChild(h("p", { class: "empty-note", text: T("noneToSend") })); return; }
+    sendSnap.forEach(function (g, gi) {
+      var c = contactFor(g.name), msg = groupMessage(g, from), btns = [];
+      function mark(via) {
+        return function () {
+          g.sent = { via: via, at: Date.now() };
+          markSent(g.tasks, via, from);
+          setTimeout(function () {
+            renderSendAll();
+            renderAll();
+            announce(T("sentMarked", viaText(via), firstName(g.name), g.tasks.length));
+            var next = $("sendList").querySelector(".pic-card:not(.sent) .btn-wa, .pic-card:not(.sent) .btn-mail, .pic-card:not(.sent) .add-contact");
+            if (next) next.focus();
+          }, 0);
+        };
+      }
+      var wa = c && c.phone ? waLink(c.phone, msg, g.sent ? T("resend") : T("btnWa"), T("waAria", g.name, T("nOpen", g.tasks.length)), mark("wa")) : null;
+      var em = c && c.email ? mailLink(c.email, T("groupSubject", from, g.tasks.length), msg, T("btnEmail"), T("mailAria", g.name, T("nOpen", g.tasks.length)), mark("email")) : null;
+      if (wa) { wa.setAttribute("data-k", "s-wa-" + gi); btns.push(wa); }
+      if (em) { em.setAttribute("data-k", "s-em-" + gi); btns.push(em); }
+      if (!c || !c.phone) btns.push(contactFixButton(c, g.name, null, { "data-k": "s-fix-" + gi }, "phone"));
+      root.appendChild(h("section", { class: "pic-card" + (g.sent ? " sent" : ""), "aria-label": g.name }, [
+        h("div", { class: "pic-top" }, [
+          h("div", null, [h("p", { class: "pic-name", text: g.name }),
+            h("p", { class: "pic-sub", text: T("nTasks", g.tasks.length) + (c && c.phone ? "" : " · " + T("noPhone").toLowerCase()) })]),
+          g.sent ? pill("green", T("sentPill"), ICONS.check) : pill("grey", T("notYet"))
+        ]),
+        h("ol", { class: "pic-tasks" }, g.tasks.map(function (t) {
+          return h("li", null, [document.createTextNode(t.text), t.date ? h("small", { text: dueText(t.date) }) : null]);
+        })),
+        g.sent ? h("p", { class: "sent-line", html: ICONS.check + escapeHtml(T("sentCard", viaText(g.sent.via), clockText(g.sent.at))) })
+          : peek(T("seeMsg"), [h("div", { class: "msg", text: msg })]),
+        h("div", { class: "btn-row" }, btns)
       ]));
     });
-    root.appendChild(h("p", { class: "ins-h", text: INS("perDay") }));
-    root.appendChild(cols);
-
-    // Coaching sentences
-    var notes = [];
-    if (d.reactive >= 60) notes.push(INS("reactiveHigh", d.reactive));
-    else if (d.planned >= 40) notes.push(INS("plannedGood", d.planned));
-    else notes.push(INS("reactiveMid", d.reactive));
-    if (d.promoted) notes.push(INS("promotedN", d.promoted));
-    if (d.onlyYou) notes.push(INS("onlyYouN", d.onlyYou));
-    if (d.dropped) notes.push(INS("droppedN", d.dropped));
-    if (d.noDate) notes.push(INS("noDateN", d.noDate));
-    root.appendChild(h("p", { class: "ins-h", text: INS("whatItMeans") }));
-    var ul = h("ul", { class: "notes" });
-    notes.forEach(function (n) { ul.appendChild(h("li", { text: n })); });
-    root.appendChild(ul);
-
-    root.appendChild(h("button", { class: "primary-btn", type: "button", text: INS("plan"), onclick: function () {
-      closeInsight();
-      setRadio("important", "1"); setRadio("urgent", "0"); renderDestination();
-      input.focus();
-    } }));
+    if (keepK) { var el = root.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el) el.focus(); }
   }
-
-  var lastFocus = null;
-  function openInsight() {
-    lastFocus = document.activeElement;
-    renderInsight();
-    var dlg = $("insight");
-    if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
-    meta.lastReview = Date.now();
-    saveMeta();
-    renderReviewBanner();
+  function openSendAll(opener) {
+    sendSnap = picGroups();
+    $("sendFrom").value = meta.lastFrom || "";
+    renderSendAll();
+    openSheet("sendDlg", opener);
   }
-  function closeInsight() {
-    var dlg = $("insight");
-    if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
-  }
-  $("insightBtn").addEventListener("click", openInsight);
-  $("insightClose").addEventListener("click", closeInsight);
-  $("insight").addEventListener("close", function () { if (lastFocus && lastFocus.focus) lastFocus.focus(); });
-  $("insight").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeInsight(); });
-
-  function renderReviewBanner() {
-    var now = Date.now();
-    var recentDone = tasks.concat(archive).filter(function (x) { return x.done && x.doneAt > now - 7 * DAY; }).length;
-    var due = recentDone >= 3 && (!meta.lastReview || meta.lastReview < now - 7 * DAY);
-    $("reviewBanner").hidden = !due;
-  }
-  $("reviewOpen").addEventListener("click", openInsight);
-  $("reviewDismiss").addEventListener("click", function () {
-    meta.lastReview = Date.now(); saveMeta(); renderReviewBanner();
-  });
-
-  /* ================================================================
-     Sample week (for first-time users and live demos)
-     ================================================================ */
-  function sampleData() {
-    var now = Date.now(), today = todayISO();
-    function at(daysAgo, hour) { var d = new Date(now - daysAgo * DAY); d.setHours(hour, 0, 0, 0); return Math.min(d.getTime(), now - 60000); }
-    function dateIn(days) { return todayISO(now + days * DAY); }
-    var bm = lang === "ms";
-    var L = function (ms, en) { return bm ? ms : en; };
-
-    var cur = [
-      { text: L("Siapkan minit Mesyuarat Jabatan Bil. 3/2026", "Finish the minutes of Department Meeting 3/2026"), q: "do", created: at(1, 9) },
-      { text: L("Edarkan memo mesyuarat tergempar kepada semua staf", "Circulate the emergency meeting memo to all staff"), q: "do", created: at(0, 8), reactive: true },
-      { text: L("Sediakan agenda Mesyuarat Jabatan akan datang", "Prepare the agenda for the next department meeting"), q: "schedule", date: dateIn(2), created: at(2, 10) },
-      { text: L("Kemas kini fail meja (MQS)", "Update the desk file (MQS)"), q: "schedule", date: "", created: at(1, 15) },
-      { text: L("Semak rekod Last Man Out minggu ini", "Check this week's Last Man Out records"), q: "schedule", date: dateIn(1), created: at(0, 7) },
-      { text: L("Kemas kini senarai kehadiran mesyuarat", "Update the meeting attendance list"), q: "delegate", who: "Aiman", date: dateIn(1), status: "doing", statusAt: at(1, 16), statusNote: L("Separuh siap", "Half done"), notifiedAt: at(1, 12), created: at(1, 11) },
-      { text: L("Tempah bilik mesyuarat untuk Mesyuarat Jabatan", "Book the meeting room for the department meeting"), q: "delegate", who: "Siti", date: dateIn(-1), notifiedAt: at(6, 10), created: at(6, 9) },
-      { text: L("Hadiri setiap webinar vendor yang dijemput", "Join every vendor webinar you are invited to"), q: "delete", created: at(0, 21) }
-    ];
-    // One scheduled task that is already due, to show automatic promotion
-    cur.push({ text: L("Draf edaran jabatan untuk semester baharu", "Draft the department circular for the new semester"), q: "schedule", date: todayISO(now - DAY), created: at(5, 9) });
-
-    function doneItem(ms, en, q, daysAgo, hour, extra) {
-      var o = { text: L(ms, en), q: q, done: true, doneQ: q, created: at(daysAgo + 1, 8), doneAt: at(daysAgo, hour), archivedAt: at(daysAgo, hour + 1) };
-      Object.keys(extra || {}).forEach(function (k) { o[k] = extra[k]; });
-      return o;
-    }
-    var arch = [
-      // This week
-      doneItem("Isi borang tuntutan perjalanan", "Fill in the travel claim form", "do", 6, 10),
-      doneItem("Jawab emel pertanyaan pensyarah", "Answer lecturers' email queries", "do", 6, 15),
-      doneItem("Betulkan draf minit sebelum diedarkan", "Correct the draft minutes before circulating", "do", 5, 11, { moves: [{ from: "schedule", to: "do", at: at(5, 0), auto: true }], promoted: true, origin: "schedule" }),
-      doneItem("Susun fail meja mengikut format MQS", "Organise the desk file in MQS format", "schedule", 5, 20),
-      doneItem("Cetak & edarkan memo jabatan", "Print & circulate the department memo", "delegate", 4, 9, { who: "Siti" }),
-      doneItem("Mesyuarat tergempar jabatan", "Emergency department meeting", "do", 4, 14, { reactive: true }),
-      doneItem("Rancang takwim mesyuarat semester", "Plan the semester meeting calendar", "schedule", 3, 21),
-      doneItem("Hantar laporan bulanan jabatan", "Submit the monthly department report", "do", 3, 16),
-      doneItem("Sediakan jadual Last Man Out bulan depan", "Prepare next month's Last Man Out roster", "schedule", 2, 7),
-      doneItem("Tempah bilik mesyuarat untuk bengkel", "Book a meeting room for the workshop", "delegate", 2, 10, { who: "Hafiz" }),
-      doneItem("Kemas kini senarai semak dokumen MQS", "Update the MQS document checklist", "schedule", 1, 22),
-      doneItem("Balas panggilan segera dari pejabat Pengarah", "Return an urgent call from the Director's office", "do", 1, 12, { reactive: true }),
-      doneItem("Failkan minit mesyuarat yang telah disahkan", "File the confirmed meeting minutes", "schedule", 0, 8),
-      // Let go on purpose this week
-      { text: L("Format semula semua templat surat lama", "Reformat every old letter template"), q: "delete", created: at(4, 9), archivedAt: at(3, 9), dropped: true },
-      { text: L("Baca semua emel promosi", "Read every promotional email"), q: "delete", created: at(3, 9), archivedAt: at(2, 9), dropped: true },
-      // The week before (more reactive, so the score shows improvement)
-      doneItem("Siapkan laporan segera", "Finish an urgent report", "do", 8, 10),
-      doneItem("Isi borang last minute", "Fill in a last-minute form", "do", 9, 11),
-      doneItem("Jawab emel bertimbun", "Clear the email backlog", "do", 10, 15),
-      doneItem("Urus aduan kerosakan bilik kuliah", "Handle a lecture room damage complaint", "delegate", 11, 9),
-      doneItem("Semak draf takwim jabatan", "Review the department calendar draft", "schedule", 12, 20)
-    ];
-    return { tasks: cur, archive: arch };
-  }
-
-  function loadSample(skipConfirm) {
-    if (tasks.length && !skipConfirm && !window.confirm(T("confirmSample"))) return;
-    if (tasks.length || archive.length) writeJSON(KEY + ":before-sample", { tasks: tasks, archive: archive, at: Date.now() });
-    var s = sampleData(), seen = Object.create(null);
-    tasks = cleanList(s.tasks, seen);
-    archive = cleanList(s.archive, seen);
-    meta.lastReview = 0; saveMeta();
-    var n = promoteDue();
-    commit();
-    showToast(T("sampleLoaded"), false);
-    if (n) setTimeout(function () { flash("do"); }, 300);
-  }
-  $("sampleBtn").addEventListener("click", function () { loadSample(true); });
-  $("sampleMenuBtn").addEventListener("click", function () { closeMenu(); loadSample(false); });
-
-  /* ================================================================
-     Task pack: Last Man Out (MARA Ecosystem Quality Standard, MQS)
-     Weekly duty rota + checklist as audit evidence for energy saving and
-     office safety. Added on top of existing tasks (never replaces them).
-     Fixed ids, so adding the pack twice does not create duplicates.
-     ================================================================ */
-  function packLmoData() {
-    var now = Date.now();
-    function dateIn(days) { return todayISO(now + days * DAY); }
-    var bm = lang === "ms";
-    var L = function (ms, en) { return bm ? ms : en; };
-    return [
-      { id: "mqs-lmo-01", q: "do",
-        text: L("Senaraikan pegawai untuk giliran mingguan Last Man Out (MQS)", "List the officers for the weekly Last Man Out rota (MQS)") },
-      { id: "mqs-lmo-02", q: "schedule", date: dateIn(1),
-        text: L("Sediakan Jadual Bertugas Mingguan Last Man Out: tarikh/minggu bertugas dan nama pegawai", "Prepare the weekly Last Man Out duty roster: duty date/week and officer name") },
-      { id: "mqs-lmo-03", q: "schedule", date: dateIn(2),
-        text: L("Sediakan borang senarai semak Last Man Out: lampu ditutup, penyaman udara dimatikan, suis utama/palam dicabut, pintu utama dikunci", "Prepare the Last Man Out checklist: lights off, air-conditioning off, main switch/plugs off, main door locked") },
-      { id: "mqs-lmo-04", q: "schedule", date: dateIn(2),
-        text: L("Tambah ruangan tandatangan & masa keluar pada borang Last Man Out (rekod harian)", "Add signature & time-out columns to the Last Man Out form (daily record)") },
-      { id: "mqs-lmo-05", q: "schedule", date: dateIn(7),
-        text: L("Semakan rekod Last Man Out minggu pertama oleh Jawatankuasa MQS pusat", "First weekly check of Last Man Out records by the centre's MQS committee") },
-      { id: "mqs-lmo-06", q: "schedule",
-        text: L("Failkan jadual & borang Last Man Out sebagai bukti audit MQS (penjimatan tenaga & keselamatan pejabat)", "File the Last Man Out roster & forms as MQS audit evidence (energy saving & office safety)") },
-      { id: "mqs-lmo-07", q: "delegate", who: "", date: dateIn(3),
-        text: L("Cetak & tampal jadual Last Man Out di pintu keluar utama / papan kenyataan zon", "Print & post the Last Man Out roster at the main exit / zone notice board") },
-      { id: "mqs-lmo-08", q: "delegate", who: "", date: dateIn(3),
-        text: L("Maklumkan giliran Last Man Out kepada semua pegawai bertugas", "Tell every officer on the rota about the Last Man Out schedule") },
-      { id: "mqs-lmo-09", q: "delegate", who: "", date: dateIn(4),
-        text: L("Pegawai bertugas lengkapkan senarai semak, tandatangan & masa keluar setiap hari sebelum pulang", "Duty officer completes the checklist, signature & time out every day before leaving") },
-      { id: "mqs-lmo-10", q: "delete",
-        text: L("Bergantung kepada seorang sahaja untuk menutup pejabat setiap hari", "Relying on one person to close the office every day") }
-    ];
-  }
-
-  function addPackLmo() {
-    var have = Object.create(null);
-    tasks.concat(archive).forEach(function (t) { have[t.id] = true; });
-    var created = Date.now();
-    var fresh = packLmoData().filter(function (t) { return !have[t.id]; })
-      .map(function (t) { t.created = created; return t; });
-    if (!fresh.length) { showToast(T("packExists"), false); return; }
-    var seen = Object.create(null);
-    tasks.concat(archive).forEach(function (t) { seen[t.id] = true; });
-    tasks = tasks.concat(cleanList(fresh, seen));
-    var n = promoteDue();
-    commit();
-    showToast(T("packAdded", fresh.length), false);
-    setTimeout(function () { flash(n ? "do" : "schedule"); }, 300);
-  }
-  $("packLmoBtn").addEventListener("click", function () { closeMenu(); addPackLmo(); });
-
-  /* ================================================================
-     Menu, export / import, install
-     ================================================================ */
-  var menu = $("menu"), menuBtn = $("menuBtn");
-  function openMenu() { menu.hidden = false; menuBtn.setAttribute("aria-expanded", "true"); var b = menu.querySelector("button:not([hidden])"); if (b) b.focus(); }
-  function closeMenu(refocus) { menu.hidden = true; menuBtn.setAttribute("aria-expanded", "false"); if (refocus) menuBtn.focus(); }
-  menuBtn.addEventListener("click", function () { if (menu.hidden) openMenu(); else closeMenu(); });
-  document.addEventListener("click", function (e) { if (!menu.hidden && !e.target.closest(".menu-wrap")) closeMenu(); });
-  menu.addEventListener("keydown", function (e) {
-    var items = Array.prototype.filter.call(menu.querySelectorAll("button"), function (b) { return !b.hidden; });
-    var i = items.indexOf(document.activeElement);
-    if (e.key === "Escape") { e.preventDefault(); closeMenu(true); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
-  });
-
-  $("exportBtn").addEventListener("click", function () {
-    closeMenu();
-    var data = { app: "eisenhower-planner", version: 3, exportedAt: new Date().toISOString(), tasks: tasks, archive: archive, contacts: contacts, rota: rota };
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var a = h("a", { href: URL.createObjectURL(blob), download: "jppp-smart-planner-" + todayISO() + ".json" });
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-  });
-
-  $("importBtn").addEventListener("click", function () { closeMenu(); $("importFile").click(); });
-  $("importFile").addEventListener("change", function (e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      try {
-        var data = JSON.parse(reader.result);
-        var inTasks = Array.isArray(data) ? data : (data && Array.isArray(data.tasks) ? data.tasks : null);
-        if (!inTasks) throw new Error("bad file");
-        var inArchive = data && Array.isArray(data.archive) ? data.archive : [];
-        var seen = Object.create(null);
-        tasks.concat(archive).forEach(function (t) { seen[t.id] = true; });
-        var existing = Object.create(null);
-        tasks.concat(archive).forEach(function (t) { existing[t.id] = true; });
-        // Skip exact duplicates (same id), give new ids to clashing ones
-        var newTasks = cleanList(inTasks.filter(function (t) { return !(t && existing[t.id]); }), seen);
-        var newArch = cleanList(inArchive.filter(function (t) { return !(t && existing[t.id]); }), seen);
-        tasks = tasks.concat(newTasks);
-        archive = archive.concat(newArch);
-        if (data && Array.isArray(data.contacts)) { contacts = cleanContacts(contacts.concat(data.contacts)); saveContacts(); }
-        if (data && data.rota && typeof data.rota === "object") mergeRota(data.rota);
-        promoteDue();
-        commit();
-        if ($("rotaDlg").open) renderRota();
-        showToast(T("imported", newTasks.length), false);
-      } catch (err) {
-        showToast(T("badFile"), false);
-      }
-      e.target.value = "";
-    };
-    reader.readAsText(file);
-  });
-
-  var installEvt = null;
-  window.addEventListener("beforeinstallprompt", function (e) {
-    e.preventDefault();
-    installEvt = e;
-    $("installBtn").hidden = false;
-  });
-  $("installBtn").addEventListener("click", function () {
-    closeMenu();
-    if (!installEvt) return;
-    installEvt.prompt();
-    installEvt = null;
-    $("installBtn").hidden = true;
-  });
-
+  $("sendFrom").addEventListener("input", function () { meta.lastFrom = $("sendFrom").value.trim().slice(0, 80); saveMeta(); renderSendAll(); });
 
   /* ================================================================
      Contacts manager
      ================================================================ */
-  var editingId = null;
+  var editingId = null, lastFocus = null;
   // "Save contact" for a PIC not in contacts; "Complete contact" for one saved without WhatsApp no. or email
   function contactFixButton(c, name, before, extra) {
     var label = T(c ? "completeContact" : "saveContact");
@@ -1585,9 +1646,7 @@
   }
   // prefill: { name } adds a new contact with that name; { id, focus } edits an existing one
   function openContacts(prefill) {
-    var fromMenu = menu.contains(document.activeElement);
-    closeMenu();
-    lastFocus = fromMenu ? menuBtn : document.activeElement;
+    lastFocus = document.activeElement;
     editingId = null;
     var f = $("contactForm");
     f.reset();
@@ -1605,7 +1664,6 @@
   function closeContacts() {
     var dlg = $("contactsDlg");
     if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
-    refreshAllShares();
   }
   function setContactMode() {
     $("contactSave").textContent = editingId ? T("cUpdate") : T("cSave");
@@ -1683,12 +1741,19 @@
     render();
     // Opened from the rota dialog: refresh it and go back to the button that opened contacts
     if ($("rotaDlg").open) { refreshRota(lastFocus); return; }
-    if (lastFocus && lastFocus.focus && lastFocus.isConnected) { lastFocus.focus(); return; }
+    // Opened from a sheet (task, PIC, send, new task): redraw it with the new phone/email
+    if (topSheet()) {
+      refreshOpenSheets();
+      if ($("sendDlg").open) renderSendAll();
+      if ($("dlgAdd").open && addPicker) addPicker.redraw();
+      if ($("dlgPick").open && pickPicker) pickPicker.redraw();
+    }
+    if (lastFocus && lastFocus.focus && lastFocus.isConnected && lastFocus.offsetParent !== null) { lastFocus.focus(); return; }
     // The opener was re-drawn (e.g. a button in the Selesai banner): go back to its replacement
     var k = lastFocus && lastFocus.getAttribute && lastFocus.getAttribute("data-k");
-    var el = k ? document.querySelector('.app [data-k="' + cssEscape(k) + '"]') : null;
+    var el = k ? document.querySelector('[data-k="' + cssEscape(k) + '"]') : null;
     if (!el && k && k.indexOf("kj-") === 0) el = $("kjActions").querySelector("a, button");   // e.g. KJ contact just added
-    if (el && el.offsetParent !== null) el.focus();
+    if (el && el.offsetParent !== null) el.focus(); else restoreFocus(null);
   });
   $("contactsDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeContacts(); });
   $("contactsBtn").addEventListener("click", function () { openContacts(); });
@@ -1784,278 +1849,6 @@
     downloadText("contacts-" + todayISO() + ".csv", "﻿" + lines.join("\n") + "\n", "text/csv");
   });
 
-
-  /* ================================================================
-     Send all open Delegate tasks, grouped by PIC (one message each)
-     ================================================================ */
-  function picGroups(onlyNew) {
-    var groups = [], byKey = Object.create(null);
-    tasks.filter(function (t) { return t.q === "delegate" && !t.done && t.who && (!onlyNew || !t.notifiedAt); })
-      .sort(sortItems("schedule"))
-      .forEach(function (t) {
-        var c = contactFor(t.who), k = (c ? c.name : t.who).toLowerCase();
-        if (!byKey[k]) { byKey[k] = { name: c ? c.name : t.who, contact: c, tasks: [] }; groups.push(byKey[k]); }
-        byKey[k].tasks.push(t);
-      });
-    return groups.sort(function (a, b) { return a.name.localeCompare(b.name); });
-  }
-  function groupMessage(g, from) {
-    var lines = g.tasks.map(function (t, i) {
-      return (i + 1) + ". *" + t.text + "*" + (t.date ? "\n   " + T("dueShort") + ": " + longDate(t.date) : "");
-    }).join("\n");
-    return T("groupBody", g.name, from, lines);
-  }
-  function renderSendAll() {
-    var root = $("sendList"), onlyNew = $("sendOnlyNew").checked, from = $("sendFrom").value.trim();
-    root.textContent = "";
-    var groups = picGroups(onlyNew);
-    if (!groups.length) { root.appendChild(h("li", { class: "c-empty", text: T("noPics") })); return; }
-    groups.forEach(function (g) {
-      var msg = groupMessage(g, from), c = g.contact, btns = [];
-      function mark() {
-        g.tasks.forEach(function (t) { t.notifiedAt = Date.now(); });
-        save();
-        setTimeout(function () { render(); renderSendAll(); announce(T("sentAll", g.tasks.length)); }, 0);
-      }
-      if (c && c.phone) btns.push(h("a", { class: "cal-link wa-link", target: "_blank", rel: "noopener",
-        href: "https://wa.me/" + c.phone + "?text=" + encodeURIComponent(msg),
-        "aria-label": T("waAria", g.name, T("nOpen", g.tasks.length)), html: ICONS.chat + "<span>WhatsApp</span>", onclick: mark }));
-      if (c && c.email) btns.push(h("a", { class: "cal-link mail-link",
-        href: "mailto:" + encodeURIComponent(c.email) + "?subject=" + encodeURIComponent(T("groupSubject", from, g.tasks.length)) + "&body=" + encodeURIComponent(msg.replace(/\*/g, "")),
-        "aria-label": T("mailAria", g.name, T("nOpen", g.tasks.length)), html: ICONS.mail + "<span>" + escapeHtml(T("cEmail")) + "</span>", onclick: mark }));
-      if (!reachable(c)) btns.push(contactFixButton(c, g.name, closeSendAll));
-      var allNotified = g.tasks.every(function (t) { return t.notifiedAt; });
-      root.appendChild(h("li", { class: "send-row" }, [
-        h("div", { class: "send-head" }, [
-          h("div", { class: "c-info" }, [
-            h("p", { class: "c-name", text: g.name }),
-            h("p", { class: "c-detail", text: c ? T("nOpen", g.tasks.length) : T("nOpen", g.tasks.length) + " · " + T("notSaved") })
-          ]),
-          allNotified ? h("span", { class: "badge badge-ok", text: "✓ " + T("notified") }) : null
-        ]),
-        h("ol", { class: "send-tasks" }, g.tasks.map(function (t) {
-          return h("li", null, [document.createTextNode(t.text), t.date ? h("span", { class: "send-due", text: " · " + longDate(t.date) }) : null]);
-        })),
-        h("div", { class: "send-btns" }, btns)
-      ]));
-    });
-  }
-  function openSendAll() {
-    lastFocus = document.activeElement;
-    $("sendFrom").value = meta.lastFrom || "";
-    renderSendAll();
-    var dlg = $("sendDlg");
-    if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
-    $("sendFrom").focus();
-  }
-  function closeSendAll() {
-    var dlg = $("sendDlg");
-    if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
-  }
-  $("sendFrom").addEventListener("input", function () { meta.lastFrom = $("sendFrom").value.trim().slice(0, 80); saveMeta(); renderSendAll(); });
-  $("sendOnlyNew").addEventListener("change", renderSendAll);
-  $("sendClose").addEventListener("click", closeSendAll);
-  $("sendDlg").addEventListener("close", function () { if (lastFocus && lastFocus.focus && lastFocus.isConnected) lastFocus.focus(); });
-  $("sendDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeSendAll(); });
-
-
-  /* ================================================================
-     Status tracking and Project monitor (for delegated tasks)
-     ================================================================ */
-  var STATUS = ["", "doing", "blocked", "done"];
-  function statusKey(t) { return t.done ? "done" : t.status; }
-  function statusText(k) { return T({ "": "stNone", doing: "stDoing", blocked: "stBlocked", done: "stDone" }[k]); }
-  function setStatus(t, k) {
-    if (k === "done") { if (!t.done) setDone(t, true); }
-    else { if (t.done) setDone(t, false); t.status = k; }
-    t.statusAt = Date.now();
-  }
-  function statusSelect(t, rerenderAll) {
-    var sel = h("select", { class: "status-select st-" + (statusKey(t) || "none"), "data-role": "status", "aria-label": T("statusLabel") + ": " + t.text },
-      STATUS.map(function (k) { return h("option", { value: k, text: statusText(k), selected: statusKey(t) === k }); }));
-    sel.addEventListener("change", function () {
-      setStatus(t, sel.value);
-      save();
-      if (rerenderAll) render();
-      if ($("monitorDlg").open) renderMonitor();
-      renderRemindBanner();
-    });
-    return sel;
-  }
-  function daysUntil(iso) {
-    var p = iso.split("-").map(Number), d = new Date(p[0], p[1] - 1, p[2]), n = new Date();
-    n.setHours(0, 0, 0, 0);
-    return Math.round((d - n) / DAY);
-  }
-  function ago(ts) {
-    var d = new Date(ts); d.setHours(0, 0, 0, 0);
-    var n = new Date(); n.setHours(0, 0, 0, 0);
-    var k = Math.round((n - d) / DAY);
-    return k <= 0 ? T("todayW") : k === 1 ? T("yesterdayW") : T("daysAgo", k);
-  }
-  function isToday(ts) { return !!ts && todayISO(ts) === todayISO(); }
-  function lastActivity(t) { return Math.max(t.statusAt || 0, t.notifiedAt || 0, t.created || 0); }
-  function delegated() { return tasks.filter(function (t) { return t.q === "delegate" && t.who; }); }
-  function needsReminder(t) { return !t.done && t.date && daysUntil(t.date) <= 1; }
-  function isStale(t) { return !t.done && t.notifiedAt && Date.now() - lastActivity(t) > 5 * DAY; }
-
-  function waLink(phone, msg, label, aria, onclick) {
-    return h("a", { class: "cal-link wa-link", target: "_blank", rel: "noopener", href: "https://wa.me/" + phone + "?text=" + encodeURIComponent(msg),
-      "aria-label": aria, title: aria, html: ICONS.chat + "<span>" + escapeHtml(label) + "</span>", onclick: onclick });
-  }
-  function mailLink(email, subject, msg, label, aria, onclick) {
-    return h("a", { class: "cal-link mail-link", href: "mailto:" + encodeURIComponent(email) + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(msg.replace(/\*/g, "")),
-      "aria-label": aria, title: aria, html: ICONS.mail + "<span>" + escapeHtml(label) + "</span>", onclick: onclick });
-  }
-  function afterSend() { save(); setTimeout(function () { render(); renderMonitor(); renderRemindBanner(); }, 0); }
-
-  function renderRemindBanner() {
-    var n = delegated().filter(function (t) { return needsReminder(t) && !isToday(t.remindedAt); }).length;
-    var b = $("remindBanner");
-    b.hidden = !n;
-    if (n) $("remindText").textContent = T("remindBanner", n);
-  }
-
-  function renderMonitor() {
-    var root = $("monitorBody");
-    root.textContent = "";
-    var all = delegated();
-    var monthAgo = Date.now() - 30 * DAY;
-    var archDone = archive.filter(function (a) { return a.q === "delegate" && a.who && a.done && (a.doneAt || 0) > monthAgo; });
-    var open = all.filter(function (t) { return !t.done; });
-    if (!all.length && !archDone.length) { root.appendChild(h("p", { class: "ins-empty", text: T("noDelegated") })); return; }
-
-    var doneCount = all.filter(function (t) { return t.done; }).length + archDone.length;
-    var total = all.length + archDone.length;
-    var overdue = open.filter(function (t) { return t.date && daysUntil(t.date) < 0; }).length;
-    var soon = open.filter(function (t) { return t.date && daysUntil(t.date) >= 0 && daysUntil(t.date) <= 1; }).length;
-    var stale = open.filter(isStale).length;
-    function tile(v, label, help, cls) {
-      return h("div", { class: "tile " + (cls || "") }, [h("p", { class: "tile-value", text: v }), h("p", { class: "tile-label", text: label }), h("p", { class: "tile-help", text: help })]);
-    }
-    root.appendChild(h("div", { class: "tiles tiles-5" }, [
-      tile(String(open.length), T("mActive"), T("mActiveHelp")),
-      tile((total ? Math.round(doneCount / total * 100) : 0) + "%", T("mDoneRate"), T("progressOf", doneCount, total), "t-ok"),
-      tile(String(overdue), T("mOverdue"), "", overdue ? "t-do" : ""),
-      tile(String(soon), T("mSoon"), "", soon ? "t-delegate" : ""),
-      tile(String(stale), T("mStale"), T("mStaleHelp"), stale ? "t-delete" : "")
-    ]));
-
-    // 1. Needs a reminder
-    root.appendChild(h("p", { class: "ins-h", text: T("needRemind") }));
-    var due = open.filter(needsReminder).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-    if (!due.length) root.appendChild(h("p", { class: "m-clear", text: T("nothingDue") }));
-    else {
-      var ul = h("ul", { class: "m-list" });
-      due.forEach(function (t) {
-        var c = contactFor(t.who), n = daysUntil(t.date), btns = [];
-        var msg = T("remindMsg", c ? c.name : t.who, t.text, n, longDate(t.date));
-        var mark = function () { t.remindedAt = Date.now(); afterSend(); };
-        if (c && c.phone) btns.push(waLink(c.phone, msg, T("remind"), T("waAria", c.name, t.text), mark));
-        if (c && c.email) btns.push(mailLink(c.email, T("remindSubject", t.text), msg, T("cEmail"), T("mailAria", c.name, t.text), mark));
-        if (!reachable(c)) btns.push(contactFixButton(c, t.who, closeMonitor));
-        if (isToday(t.remindedAt)) btns.push(h("span", { class: "badge badge-ok", text: "✓ " + T("remindedToday") }));
-        ul.appendChild(h("li", { class: "m-row" + (n < 0 ? " is-late" : "") }, [
-          h("div", { class: "m-main" }, [
-            h("p", { class: "m-task", text: t.text }),
-            h("p", { class: "m-sub" }, [
-              h("span", { class: "m-due " + (n < 0 ? "late" : "soon"), text: T("dueWhen", n) }),
-              document.createTextNode(" · " + (c ? c.name : t.who) + " · " + statusText(statusKey(t)))
-            ])
-          ]),
-          h("div", { class: "send-btns" }, btns)
-        ]));
-      });
-      root.appendChild(ul);
-    }
-
-    // 2. By PIC
-    root.appendChild(h("p", { class: "ins-h", text: T("byPic") }));
-    var groups = [], byKey = Object.create(null);
-    all.concat(archDone).forEach(function (t) {
-      var c = contactFor(t.who), k = (c ? c.name : t.who).toLowerCase();
-      if (!byKey[k]) { byKey[k] = { name: c ? c.name : t.who, c: c, items: [] }; groups.push(byKey[k]); }
-      byKey[k].items.push(t);
-    });
-    groups.forEach(function (g) {
-      g.open = g.items.filter(function (t) { return !t.done; });
-      g.late = g.open.filter(function (t) { return t.date && daysUntil(t.date) < 0; }).length;
-      g.blocked = g.open.filter(function (t) { return t.status === "blocked"; }).length;
-    });
-    groups.sort(function (a, b) { return (b.late + b.blocked) - (a.late + a.blocked) || b.open.length - a.open.length || a.name.localeCompare(b.name); });
-
-    groups.forEach(function (g) {
-      var done = g.items.length - g.open.length, pct = Math.round(done / g.items.length * 100);
-      var last = Math.max.apply(null, g.items.map(lastActivity));
-      var btns = [];
-      if (g.open.length && reachable(g.c)) {
-        var lines = g.open.slice().sort(sortItems("schedule")).map(function (t, i) {
-          return (i + 1) + ". *" + t.text + "*" + (t.date ? " (" + T("dueShort").toLowerCase() + ": " + longDate(t.date) + ")" : "");
-        }).join("\n");
-        var msg = T("askMsg", g.c.name, lines);
-        var mark = function () { g.open.forEach(function (t) { t.askedAt = Date.now(); }); afterSend(); };
-        if (g.c.phone) btns.push(waLink(g.c.phone, msg, T("askStatus"), T("waAria", g.c.name, T("askStatus")), mark));
-        if (g.c.email) btns.push(mailLink(g.c.email, T("askSubject"), msg, T("cEmail"), T("mailAria", g.c.name, T("askStatus")), mark));
-      } else if (g.open.length) {
-        btns.push(contactFixButton(g.c, g.name, closeMonitor));
-      }
-      var asked = Math.max.apply(null, g.open.map(function (t) { return t.askedAt || 0; }).concat([0]));
-      var flags = [];
-      if (g.late) flags.push(h("span", { class: "badge badge-overdue", text: T("mOverdue") + " " + g.late }));
-      if (g.blocked) flags.push(h("span", { class: "badge badge-overdue", text: T("stBlocked") + " " + g.blocked }));
-
-      var card = h("section", { class: "pic-card" }, [
-        h("div", { class: "pic-head" }, [
-          h("div", { class: "c-info" }, [
-            h("p", { class: "c-name", text: g.name }),
-            h("p", { class: "c-detail", text: T("progressOf", done, g.items.length) + " · " + T("updatedAgo", ago(last)) + (asked ? " · " + T("askedOn", ago(asked)) : "") })
-          ]),
-          h("div", { class: "pic-flags" }, flags)
-        ]),
-        h("div", { class: "pic-bar", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct), "aria-label": g.name + ": " + T("progressOf", done, g.items.length) }, [
-          (function () { var f = h("span"); f.style.width = pct + "%"; return f; })()
-        ])
-      ]);
-      var tl = h("ul", { class: "pic-tasks" });
-      g.items.slice().sort(sortItems("schedule")).forEach(function (t) {
-        var isArch = archive.indexOf(t) >= 0;
-        var n = t.date ? daysUntil(t.date) : null;
-        var note = isArch ? null : h("input", { class: "chip-input note-input", type: "text", value: t.statusNote, maxlength: "140",
-          placeholder: T("notePh"), "aria-label": T("noteLabel") + ": " + t.text });
-        if (note) note.addEventListener("change", function () { t.statusNote = note.value.trim().slice(0, 140); t.statusAt = Date.now(); save(); });
-        tl.appendChild(h("li", { class: "pic-task" + (t.done ? " done" : "") }, [
-          h("div", { class: "m-main" }, [
-            h("p", { class: "m-task", text: t.text }),
-            h("p", { class: "m-sub" }, [
-              t.date && !t.done ? h("span", { class: "m-due " + (n < 0 ? "late" : n <= 1 ? "soon" : ""), text: T("dueWhen", n) }) : null,
-              t.date && !t.done ? document.createTextNode(" · ") : null,
-              document.createTextNode(t.done && t.doneAt ? T("stDone") + " " + ago(t.doneAt) : t.statusAt ? T("updatedAgo", ago(t.statusAt)) : T("never"))
-            ]),
-            note
-          ]),
-          isArch ? h("span", { class: "badge badge-ok", text: "✓ " + T("stDone") }) : statusSelect(t, true)
-        ]));
-      });
-      card.appendChild(tl);
-      if (btns.length) card.appendChild(h("div", { class: "send-btns pic-actions" }, btns));
-      root.appendChild(card);
-    });
-  }
-  function openMonitor() {
-    lastFocus = document.activeElement;
-    renderMonitor();
-    var dlg = $("monitorDlg");
-    if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
-  }
-  function closeMonitor() {
-    var dlg = $("monitorDlg");
-    if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
-  }
-  $("monitorBtn").addEventListener("click", openMonitor);
-  $("remindOpen").addEventListener("click", openMonitor);
-  $("monitorClose").addEventListener("click", closeMonitor);
-  $("monitorDlg").addEventListener("close", function () { render(); if (lastFocus && lastFocus.focus && lastFocus.isConnected) lastFocus.focus(); });
-  $("monitorDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeMonitor(); });
 
   /* ================================================================
      Last Man Out rota (MQS): who closes the office each week (or day),
@@ -2434,16 +2227,35 @@
   }
 
   /* ---------- Banner ---------- */
+  // Home notice: only on days the SU must act. One-tap buttons for the first notice; the tab has the rest.
   function renderLmoBanner() {
     var b = $("lmoBanner");
     if (!b || !rota) return;
-    var due = lmoDue();
+    var due = lmoDue(), box = $("lmoActions"), a = document.activeElement;
+    var keepK = a && b.contains(a) ? a.getAttribute("data-k") : null;
+    $("lmoBadge").hidden = !(due.length || kjDue().length);
     b.hidden = !due.length;
-    if (!due.length) return;
-    var parts = due.slice(0, 3).map(function (d) {
-      return personName(d.e) + " (" + d.chs.map(function (x) { return chName(x.ch, true); }).join(", ") + ")";
-    }).join(", ");
-    $("lmoText").textContent = T("lmoBanner", parts + (due.length > 3 ? " " + T("lmoMore", due.length - 3) : ""));
+    box.textContent = "";
+    if (due.length) {
+      var first = due[0], onlyWa = due.length === 1 && first.chs.length === 1 && first.chs[0].ch === "wa" && currentEntry(todayISO()) === first.e;
+      var parts = due.slice(0, 3).map(function (d) {
+        return personName(d.e) + " (" + d.chs.map(function (x) { return chName(x.ch, true); }).join(", ") + ")";
+      }).join(", ");
+      // Only the WhatsApp of this week's officer: short title + one line (as designed); otherwise the full sentence
+      $("lmoTitle").textContent = onlyWa ? T("lmoNoticeTitle", personName(first.e)) : T("lmoBanner", parts + (due.length > 3 ? " " + T("lmoMore", due.length - 3) : ""));
+      $("lmoText").textContent = onlyWa ? T("lmoNoticeWa") : "";
+      $("lmoText").hidden = !onlyWa;
+      first.chs.forEach(function (x) {
+        var el = channelButton(first.e, first.c, x.ch, personName(first.e));
+        el.setAttribute("data-k", "home-" + x.ch + "-" + first.e.id);
+        box.appendChild(el);
+      });
+      if (due.length > 1) box.appendChild(h("button", { class: "btn btn-quiet btn-sm", type: "button", id: "lmoOpen", "data-k": "home-lmo", text: T("lmoSeeAll"),
+        onclick: function () { showView("lmo", true); } }));
+      if (keepK) { var el = box.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el) el.focus(); }
+    }
+    if (keepK && (b.hidden || !b.contains(document.activeElement))) restoreFocus(null);
+    if (view === "lmo") renderLmoTab();
   }
   // Buttons for one unconfirmed day: tick Selesai, or tell the Head of Department by WhatsApp / email
   function kjButtons(p, done) {
@@ -2487,8 +2299,9 @@
   function afterKjBanner(msg) {
     renderKjBanner();
     if ($("rotaDlg").open) renderRota();
-    var next = [$("kjActions").querySelector("button, a"), $("lmoOpen"), input].filter(function (x) { return x && x.offsetParent !== null; })[0];
-    if (next && document.activeElement === document.body) next.focus();
+    var next = [$("kjActions").querySelector("button, a"), $("lmoOpen")].filter(function (x) { return x && x.offsetParent !== null; })[0];
+    if (document.activeElement === document.body) { if (next) next.focus(); else restoreFocus(null); }
+    renderLmoBanner();
     announce(msg);
   }
 
@@ -2541,6 +2354,17 @@
         ])
       ]),
       h("div", { class: "send-btns" }, d.chs.map(function (x) { return channelButton(e, d.c, x.ch, name); }))
+    ]);
+  }
+  // One unconfirmed Selesai day (rota dialog and Last Man Out tab)
+  function kjRow(p, done) {
+    return h("li", { class: "m-row is-late" }, [
+      h("div", { class: "m-main" }, [
+        h("p", { class: "m-task", text: personName(p.e) }),
+        h("p", { class: "m-sub" }, [h("span", { class: "badge badge-overdue", text: T("rLate") }),
+          document.createTextNode(" " + T("rKjPending", dayLong(p.d), rota.deadline))])
+      ]),
+      h("div", { class: "send-btns" }, kjButtons(p, done))
     ]);
   }
   function rotaField(label, control) { return h("label", { class: "r-field" }, [h("span", { text: label }), control]); }
@@ -2759,14 +2583,7 @@
     var due = lmoDue(today), pend = kjDue();
     if (!due.length && !pend.length) root.appendChild(h("p", { class: "m-clear", text: T("rNothingDue") }));
     else root.appendChild(h("ul", { class: "m-list" }, due.map(function (d) { return dueRow(d); }).concat(pend.map(function (p) {
-      return h("li", { class: "m-row is-late" }, [
-        h("div", { class: "m-main" }, [
-          h("p", { class: "m-task", text: personName(p.e) }),
-          h("p", { class: "m-sub" }, [h("span", { class: "badge badge-overdue", text: T("rLate") }),
-            document.createTextNode(" " + T("rKjPending", dayLong(p.d), rota.deadline))])
-        ]),
-        h("div", { class: "send-btns" }, kjButtons(p, function (msg) { afterRotaChange(msg); renderKjBanner(); }))
-      ]);
+      return kjRow(p, function (msg) { afterRotaChange(msg); renderKjBanner(); });
     }))));
 
     // 2. Settings
@@ -2805,10 +2622,8 @@
     var el = k ? $("rotaBody").querySelector('[data-k="' + cssEscape(k) + '"]') : null;
     (el && el.offsetParent !== null ? el : $("rotaClose")).focus();
   }
-  function openRota(focusDue) {
-    var a = document.activeElement;
-    rotaLastFocus = menu.contains(a) ? menuBtn : a;
-    closeMenu();
+  function openRota(focusDue, opener) {
+    rotaLastFocus = opener || document.activeElement;
     rotaOpen.settings = null;
     renderRota();
     var dlg = $("rotaDlg");
@@ -2820,13 +2635,11 @@
     var dlg = $("rotaDlg");
     if (typeof dlg.close === "function") dlg.close(); else dlg.removeAttribute("open");
   }
-  $("rotaBtn").addEventListener("click", function () { openRota(false); });
-  $("lmoOpen").addEventListener("click", function () { openRota(true); });
   $("rotaClose").addEventListener("click", closeRota);
   $("rotaDlg").addEventListener("close", function () {
     render();
     var f = rotaLastFocus;
-    if (f && f.focus && f.isConnected && f.offsetParent !== null) f.focus(); else menuBtn.focus();
+    if (f && f.focus && f.isConnected && f.offsetParent !== null) f.focus(); else restoreFocus(f);
   });
   $("rotaDlg").addEventListener("click", function (e) { if (e.target === e.currentTarget) closeRota(); });
 
@@ -2878,25 +2691,219 @@
     window.print();
   }
 
+
+  /* ================================================================
+     Last Man Out tab: this week's officer, what was sent, Selesai, coming up.
+     The rota tools themselves ("Urus giliran") are the rota dialog below, unchanged.
+     ================================================================ */
+  function dmyShort(iso) { return shortDay(iso); }
+  function lmoCheck(state, title, sub, act) {
+    var icon = state === "ok" ? ICONS.check : state === "todo" ? ICONS.alert : ICONS.clock;
+    return h("li", null, [h("span", { class: "chk chk-" + state, html: icon }), h("div", { class: "txt" }, [
+      h("strong", { text: title }), sub ? h("span", { class: "muted d-block", text: sub }) : null, act ? h("div", { class: "btn-row mt-s" }, act) : null
+    ])]);
+  }
+  function dayState(e, d, today, hhmm) {
+    var st = e.days[d] || {};
+    if (st.off) return ["off", T("dayStOff")];
+    if (st.ok) return ["ok", T("dayStOk")];
+    if (st.kj) return ["kj", T("dayStKj")];
+    if (!rota.webUrl && (d < today || (d === today && hhmm >= rota.deadline)) && (!rota.confirmFrom || d >= rota.confirmFrom)) return ["pending", T("dayStPending")];
+    if (d === today) return ["today", T("dayStToday")];
+    return ["none", "–"];
+  }
+  function renderLmoTab() {
+    var root = $("lmoBody"), today = todayISO(), now = new Date(), hhmm = pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+    var a = document.activeElement, keepK = a && root.contains(a) ? a.getAttribute("data-k") : null;
+    root.textContent = "";
+    var manage = svgBtn("", ICONS.gear, T("lmoManage"), { "data-k": "lmo-manage", onclick: function (ev) { openRota(false, ev.currentTarget); } });
+    if (!rota.entries.length) {
+      root.appendChild(h("div", { class: "card" }, [h("p", { text: T("lmoEmpty") }), h("div", { class: "btn-row mt" }, [manage])]));
+      return;
+    }
+    // 1. What needs doing now (same rows as in the rota tools); the shown turn's notices are in its own card below
+    var shown = currentEntry(today) || nextEntry(today);
+    var due = lmoDue(today).filter(function (d) { return d.e !== shown; }), pend = kjDue();
+    if (due.length || pend.length) {
+      root.appendChild(h("section", { class: "card card-act", "aria-labelledby": "lmoNeed" }, [
+        h("h2", { class: "section-title", id: "lmoNeed", text: T("lmoNeedAct") }),
+        h("ul", { class: "m-list" }, due.map(function (d) { return dueRow(d); }).concat(pend.map(function (p) { return kjRow(p, function (msg) { renderAll(); if (msg) announce(msg); }); })))
+      ]));
+    }
+    // 2. This week (or the next turn)
+    var e = currentEntry(today), isNow = !!e;
+    if (!e) e = nextEntry(today);
+    if (e) {
+      var c = entryContact(e), early = addDays(e.start, -2), checks = [];
+      var mail = e.sent.email && e.sent.cal;
+      if (mail) checks.push(lmoCheck("ok", T("lmoEmailCal"), T("lmoSentOn", shortDay(todayISO(Math.max(e.sent.email, e.sent.cal))))));
+      else if (rota.gas) checks.push(lmoCheck(today >= early ? "ok" : "wait", T("lmoEmailCal"), T("lmoAutoOn", shortDay(early))));
+      else if (today >= early) checks.push(lmoCheck("todo", T("lmoEmailCal"), T("lmoToSendNow"),
+        [e.sent.email ? null : channelButton(e, c, "email", personName(e)), e.sent.cal ? null : channelButton(e, c, "cal", personName(e))].filter(Boolean)));
+      else checks.push(lmoCheck("wait", T("lmoEmailCal"), T("lmoToSendOn", shortDay(early))));
+      if (e.sent.wa) checks.push(lmoCheck("ok", T("lmoWaLine"), T("lmoSentOn", whenText(e.sent.wa))));
+      else if (today >= e.start) checks.push(lmoCheck("todo", T("lmoWaLine"), T("lmoWaToday"), [channelButton(e, c, "wa", personName(e))]));
+      else checks.push(lmoCheck("wait", T("lmoWaLine"), T("lmoToSendOn", shortDay(e.start))));
+      checks.push(lmoCheck("wait", T("lmoConfirmTitle"), rota.webUrl ? T("lmoConfirmAuto", rota.deadline) : T("lmoConfirmManual", rota.deadline)));
+      var days = [];
+      for (var d = e.start; d <= e.end; d = addDays(d, 1)) {
+        if (!isWorkday(d)) continue;
+        var ds = dayState(e, d, today, hhmm), p = parseISO(d);
+        days.push(h("li", { class: "day day-" + ds[0] + (d === today ? " today" : "") }, [
+          h("b", { text: T("days")[p.getDay()] }), document.createTextNode(String(p.getDate())), h("span", { class: "day-st", text: ds[1] })
+        ]));
+      }
+      var who = [c ? c.role : "", c ? c.prog : "", T("lmoDutyTime", rota.timeFrom, rota.timeTo)].filter(Boolean).join(" · ");
+      root.appendChild(h("section", { class: "card", "aria-labelledby": "lmoThis" }, [
+        h("p", { class: "eyebrow", id: "lmoThis", text: isNow ? T("lmoThisWeek", lmoRange(e)) : T("lmoNextTurn", lmoRange(e)) }),
+        h("p", { class: "duty-name", text: personName(e) }),
+        h("p", { class: "muted", text: who }),
+        h("ul", { class: "checks" }, checks),
+        h("ul", { class: "days", "aria-label": T("lmoDaysAria") }, days)
+      ]));
+    }
+    // 3. Coming up
+    var later = rota.entries.filter(function (x) { return x.start > (e ? e.end : today); }).slice(0, 3);
+    root.appendChild(h("section", { class: "card", "aria-labelledby": "lmoNext" }, [
+      h("h2", { class: "section-title", id: "lmoNext", text: T("lmoUpcoming") }),
+      later.length ? h("ul", { class: "upnext" }, later.map(function (x) {
+        var right = x.off ? T("pHoliday") : rota.gas ? T("lmoEmailAuto", shortDay(addDays(x.start, -2))) : T("lmoEmailOn", shortDay(addDays(x.start, -2)));
+        return h("li", null, [h("span", null, [h("strong", { text: x.off ? T("pHoliday") : personName(x) || T("rNoPerson") }), h("br"), h("span", { class: "muted", text: lmoRange(x) })]),
+          h("span", { class: "muted ta-r", text: x.off ? "" : right })]);
+      })) : h("p", { class: "muted", text: T("lmoNoMore") })
+    ]));
+    root.appendChild(h("div", { class: "btn-row mt" }, [manage,
+      svgBtn("", ICONS.print, T("rPrintRoster"), { "data-k": "lmo-print", onclick: function () { printRota("roster"); } }),
+      svgBtn("", ICONS.print, T("rPrintCheck"), { "data-k": "lmo-check", onclick: function () { printRota("check"); } })]));
+    root.appendChild(h("p", { class: "foot-note", text: rota.gas ? T("lmoAutoNote") : T("lmoManualNote") }));
+    // Keys unique to this tab, so they never clash with the same buttons in the home notice or the rota dialog
+    root.querySelectorAll("[data-k]").forEach(function (b) { var k = b.getAttribute("data-k"); if (k.indexOf("lmo-") !== 0) b.setAttribute("data-k", "tab-" + k); });
+    if (keepK) { var el = root.querySelector('[data-k="' + cssEscape(keepK) + '"]'); if (el && el.offsetParent !== null) el.focus(); }
+  }
+
+  /* ================================================================
+     Lagi (More): contacts, backup, language, theme, install, guide
+     ================================================================ */
+  function renderMore() {
+    $("moreContactCount").textContent = T("cCount", contacts.length);
+    document.querySelectorAll("[data-theme-set]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-theme-set") === savedThemeValue())); });
+    document.querySelectorAll(".lang [data-lang]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang)); });
+  }
+
+  $("exportBtn").addEventListener("click", function () {
+    save();
+    var data = { app: "eisenhower-planner", version: 4, exportedAt: new Date().toISOString(), tasks: tasks, archive: archive, contacts: contacts, rota: rota };
+    downloadText("jppp-smart-planner-" + todayISO() + ".json", JSON.stringify(data, null, 2), "application/json");
+    toast(T("backupSaved"));
+  });
+  $("importBtn").addEventListener("click", function () { $("importFile").click(); });
+  $("importFile").addEventListener("change", function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(reader.result);
+        var inTasks = Array.isArray(data) ? data : (data && Array.isArray(data.tasks) ? data.tasks : null);
+        if (!inTasks) throw new Error("bad file");
+        var inArchive = data && Array.isArray(data.archive) ? data.archive : [];
+        var seen = Object.create(null), existing = Object.create(null);
+        tasks.concat(archive).forEach(function (t) { seen[t.id] = true; existing[t.id] = true; });
+        // Skip exact duplicates (same id), give new ids to clashing ones; map old four-box tasks the same way as the migration
+        var newTasks = cleanList(inTasks.filter(function (t) { return !(t && existing[t.id]); }), seen);
+        var newArch = cleanList(inArchive.filter(function (t) { return !(t && existing[t.id]); }), seen);
+        var now = Date.now(), kept = [];
+        newTasks.forEach(function (t) { if (mapLegacy(t, now) === "archive") newArch.push(t); else kept.push(t); });
+        tasks = tasks.concat(kept);
+        archive = archive.concat(newArch);
+        if (data && Array.isArray(data.contacts)) { contacts = cleanContacts(contacts.concat(data.contacts)); saveContacts(); }
+        if (data && data.rota && typeof data.rota === "object") mergeRota(data.rota);
+        save();
+        autoArchiveDone();
+        renderAll();
+        if ($("rotaDlg").open) renderRota();
+        toast(T("imported", kept.length));
+      } catch (err) {
+        toast(T("badFile"));
+      }
+      e.target.value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  var installEvt = null;
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    installEvt = e;
+    $("installItem").hidden = false;
+  });
+  $("installBtn").addEventListener("click", function () {
+    if (!installEvt) return;
+    installEvt.prompt();
+    installEvt = null;
+    $("installItem").hidden = true;
+  });
+
+  /* ================================================================
+     Example data (empty state and ?demo=1). Fake names only.
+     ================================================================ */
+  function sampleData() {
+    var now = Date.now();
+    function at(daysAgo, hour, min) { var d = new Date(now - daysAgo * DAY); d.setHours(hour, min || 0, 0, 0); return Math.min(d.getTime(), now - 60000); }
+    function dateIn(days) { return addDays(todayISO(), days); }
+    var bm = lang === "ms", L = function (ms, en) { return bm ? ms : en; };
+    var MEET = L("Mesyuarat Jabatan Bil. 4/2026", "Department Meeting 4/2026");
+    var people = [
+      { name: "Pensyarah A", role: "Pensyarah", prog: "AA101", phone: "60120000001", email: "pensyarah.a@example.com", rota: false },
+      { name: "Pensyarah B", role: "Pensyarah", prog: "AB101", phone: "60120000002", email: "pensyarah.b@example.com", rota: false },
+      { name: "Pensyarah C", role: "Ketua Program", prog: "AB107", phone: "60120000003", email: "pensyarah.c@example.com", rota: false },
+      { name: "Pensyarah D", role: "Pensyarah", prog: "AB107", phone: "60120000006", email: "pensyarah.d@example.com", rota: false },
+      { name: "Puan Siti (contoh)", role: "Pensyarah", prog: "AA101", phone: "60120000004", email: "siti@example.com", rota: false },
+      { name: "Encik Hafiz (contoh)", role: "Pensyarah", prog: "AB101", phone: "60120000005", email: "", rota: false },
+      { name: "Dr. Aminah (contoh)", role: "Ketua Program", prog: "AA101", phone: "", email: "aminah@example.com", rota: false }
+    ];
+    var list = [
+      { text: L("Sediakan kertas cadangan lawatan industri AA101", "Prepare the AA101 industry visit proposal"), who: "Pensyarah A", date: dateIn(11), created: at(3, 16, 5), src: MEET },
+      { text: L("Kemas kini fail kursus AB107 untuk audit MQS", "Update the AB107 course file for the MQS audit"), who: "Pensyarah A", date: dateIn(4), created: at(3, 16, 6), src: MEET },
+      { text: L("Hantar senarai pelajar latihan industri kepada Unit LI", "Send the industrial training student list to the LI Unit"), who: "Encik Hafiz (contoh)", date: dateIn(2), created: at(3, 16, 8), src: MEET },
+      { text: L("Kumpul borang penilaian pensyarah semester ini", "Collect this semester's lecturer evaluation forms"), who: "Pensyarah C", date: dateIn(-3), created: at(11, 10), notifiedAt: at(10, 9, 30), sentVia: "wa" },
+      { text: L("Tempah dewan untuk Hari Kerjaya", "Book the hall for Career Day"), who: "Puan Siti (contoh)", date: dateIn(7), created: at(3, 16, 2), notifiedAt: at(3, 17, 10), sentVia: "wa", src: MEET },
+      { text: L("Semak draf takwim peperiksaan akhir", "Check the final exam calendar draft"), who: "Pensyarah B", date: dateIn(3), created: at(3, 16, 3), notifiedAt: at(3, 17, 12), sentVia: "wa", src: MEET },
+      { text: L("Sediakan slaid taklimat semester baharu", "Prepare the new semester briefing slides"), who: "Dr. Aminah (contoh)", date: dateIn(9), created: at(3, 16, 4), notifiedAt: at(3, 17, 15), sentVia: "email", ackAt: at(2, 9, 12), ackVia: "su", src: MEET },
+      { text: L("Kemas kini papan kenyataan jabatan", "Update the department notice board"), who: "Pensyarah B", date: dateIn(1), created: at(6, 11), notifiedAt: at(6, 11, 5), sentVia: "wa", ackAt: at(6, 11, 40), ackVia: "su" },
+      { text: L("Kemas kini senarai semak dokumen MQS", "Update the MQS document checklist"), who: "Encik Hafiz (contoh)", date: dateIn(4), created: at(7, 10), notifiedAt: at(7, 10, 10), sentVia: "wa", ackAt: at(7, 12), ackVia: "su",
+        status: "blocked", statusAt: at(2, 15), statusNote: L("Perlu templat terkini daripada Unit Kualiti", "Needs the latest template from the Quality Unit") },
+      { text: L("Tempah bilik mesyuarat untuk bengkel OBE", "Book a meeting room for the OBE workshop"), who: "Pensyarah D", date: dateIn(-4), created: at(12, 9), notifiedAt: at(12, 9, 10), sentVia: "wa", ackAt: at(12, 9, 40), ackVia: "su", done: true, doneAt: at(5, 15) },
+      { text: L("Kemas kini senarai kehadiran mesyuarat", "Update the meeting attendance list"), who: "Pensyarah A", date: dateIn(-5), created: at(10, 11), notifiedAt: at(10, 11, 5), sentVia: "wa", ackAt: at(10, 11, 30), ackVia: "su", done: true, doneAt: at(6, 16, 20) }
+    ];
+    list.forEach(function (t) { t.q = "delegate"; });
+    return { tasks: list, contacts: people };
+  }
+  function loadSample(skipConfirm) {
+    if (tasks.length && !skipConfirm && !window.confirm(T("confirmSample"))) return;
+    if (tasks.length || archive.length) writeJSON(KEY + ":before-sample", { tasks: tasks, archive: archive, at: Date.now() });
+    var s = sampleData();
+    tasks = cleanList(s.tasks, Object.create(null));
+    contacts = cleanContacts(contacts.concat(s.contacts.filter(function (c) { return !contactFor(c.name); })));
+    saveContacts();
+    save();
+    renderAll();
+    toast(T("sampleLoaded"));
+    var hd = $("h-mesyuarat"); hd.setAttribute("tabindex", "-1"); hd.focus();
+  }
+
   /* ================================================================
      Theme and language
      ================================================================ */
-  function applyTheme(theme) {
-    if (theme) document.documentElement.setAttribute("data-theme", theme);
-    else document.documentElement.removeAttribute("data-theme");
-    $("themeBtn").setAttribute("aria-pressed", String(document.documentElement.getAttribute("data-theme") === "dark"));
+  function savedThemeValue() { var v = null; try { v = localStorage.getItem(THEME_KEY); } catch (e) {} return v === "dark" || v === "light" ? v : ""; }
+  // "light" | "dark" = the SU's choice; "" = Auto (follow the phone's setting)
+  function setTheme(v) {
+    if (v) document.documentElement.setAttribute("data-theme", v); else document.documentElement.removeAttribute("data-theme");
+    try { if (v) localStorage.setItem(THEME_KEY, v); else localStorage.removeItem(THEME_KEY); } catch (e) {}
+    renderMore();
   }
-  var savedTheme = null;
-  try { savedTheme = localStorage.getItem(THEME_KEY); } catch (e) {}
-  if (savedTheme === "dark" || savedTheme === "light") applyTheme(savedTheme);
-  else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) applyTheme("dark");
-  else applyTheme(null);
-
-  $("themeBtn").addEventListener("click", function () {
-    var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
-    applyTheme(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
-  });
+  document.querySelectorAll("[data-theme-set]").forEach(function (b) { b.addEventListener("click", function () { setTheme(b.getAttribute("data-theme-set")); }); });
+  if (savedThemeValue()) document.documentElement.setAttribute("data-theme", savedThemeValue());
 
   function applyLang(l) {
     lang = I18N[l] ? l : "ms";
@@ -2904,26 +2911,25 @@
     document.querySelectorAll("[data-i18n]").forEach(function (el) { el.textContent = T(el.getAttribute("data-i18n")); });
     document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) { el.placeholder = T(el.getAttribute("data-i18n-placeholder")); });
     document.querySelectorAll("[data-i18n-aria]").forEach(function (el) { el.setAttribute("aria-label", T(el.getAttribute("data-i18n-aria"))); });
-    document.querySelectorAll(".lang [data-lang]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang)); });
     renderToday();
-    renderDestination();
-    if ($("detect").hidden === false) detectKeywords();
-    render();
-    if ($("insight").open) renderInsight();
-    if ($("contactsDlg").open) renderContacts();
-    if ($("sendDlg").open) renderSendAll();
-    if ($("monitorDlg").open) renderMonitor();
-    if ($("rotaDlg").open) renderRota();
     renderRoleOptions();
+    renderAll();
+    renderMore();
+    if ($("contactsDlg").open) renderContacts();
+    if ($("rotaDlg").open) renderRota();
+    if ($("sendDlg").open) renderSendAll();
+    if ($("dlgAdd").open) { renderWhen(); if (addPicker) addPicker.redraw(); }
+    if ($("dlgPick").open && pickPicker) pickPicker.redraw();
+    refreshOpenSheets();
   }
   document.querySelectorAll(".lang [data-lang]").forEach(function (b) {
     b.addEventListener("click", function () {
       var l = b.getAttribute("data-lang");
       try { localStorage.setItem(LANG_KEY, l); } catch (e) {}
       applyLang(l);
+      b.focus();
     });
   });
-
   // Role suggestions in the contact form follow the language
   function renderRoleOptions() {
     var dl = $("roleList");
@@ -2939,19 +2945,21 @@
      Keyboard shortcut, multi-tab sync, day change
      ================================================================ */
   document.addEventListener("keydown", function (e) {
-    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.key !== "/" && e.key !== "n") || e.ctrlKey || e.metaKey || e.altKey) return;
     var a = document.activeElement;
     var typing = a && (a.isContentEditable || a.tagName === "TEXTAREA" || a.tagName === "SELECT" ||
       (a.tagName === "INPUT" && !/^(checkbox|radio|button|submit|file)$/.test(a.type)));
-    if (!typing && !$("insight").open) { e.preventDefault(); input.focus(); }
+    if (typing || document.querySelector("dialog[open]")) return;
+    e.preventDefault();
+    openAdd(a);
   });
 
   window.addEventListener("storage", function (e) {
     if (e.key !== KEY && e.key !== ARCHIVE_KEY && e.key !== ROTA_KEY && e.key !== CONTACTS_KEY) return;
-    if (document.activeElement && document.activeElement.classList.contains("task-edit")) return;
+    if (document.querySelector("dialog[open]:not(#rotaDlg)")) return;   // do not pull the data out from under an open form
     loadAll();
     renderContactOptions();
-    render();
+    renderAll();
     if ($("rotaDlg").open) renderRota();
   });
 
@@ -2959,15 +2967,14 @@
   setInterval(function () {
     // Every minute: Last Man Out notices, and the "Selesai not confirmed" banner once the deadline passes
     renderLmoBanner();
-    if (renderKjBanner() && $("rotaDlg").open) renderRota();
+    if (renderKjBanner()) { if ($("rotaDlg").open) renderRota(); if (view === "lmo") renderLmoTab(); }
     var now = todayISO();
     if (now === lastDay) return;
     lastDay = now;
     renderToday();
-    var n = promoteDue();
-    commit();
+    autoArchiveDone();
+    renderAll();
     if ($("rotaDlg").open) renderRota();
-    if (n) showToast(T("promoted", n), false);
   }, 60000);
 
   /* ================================================================
@@ -2979,19 +2986,13 @@
 
   loadAll();
   renderContactOptions();
-  var promotedOnLoad = promoteDue();
-  if (promotedOnLoad) save();
   applyLang(lang);
-  if (promotedOnLoad) showToast(T("promoted", promotedOnLoad), false);
+  showView("mesyuarat");
 
-  // ?demo=1 loads the sample week (only when the planner is empty, so real data is never replaced)
-  if (/[?&]demo=1\b/.test(location.search)) {
-    if (!tasks.length) loadSample(true);
-    try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
-  }
-  // ?pakej=lmo adds the Last Man Out (MQS) task pack on top of existing tasks
-  if (/[?&]pakej=lmo\b/.test(location.search)) {
-    addPackLmo();
+  // ?demo=1 loads the example (only when there are no tasks, so real data is never replaced).
+  // ?pakej=lmo (the old Last Man Out task pack) is no longer used and is ignored.
+  if (/[?&](demo=1|pakej=lmo)\b/.test(location.search)) {
+    if (/[?&]demo=1\b/.test(location.search) && !tasks.length) loadSample(true);
     try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
   }
 })();

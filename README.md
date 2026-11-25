@@ -1,77 +1,73 @@
 # JPPP Smart Planner
 
-*Planner berasaskan Matriks Eisenhower (sebelum ini dikenali sebagai Eisenhower Planner).*
+**Setiausaha Jabatan · KPTM Kuantan**
 
-**Bukan sekadar senarai, tetapi jurulatih keputusan.**
-*Not just a list, a decision coach.*
+*Rekod tindakan mesyuarat, maklumkan setiap PIC dengan satu sentuhan, dan lihat sekali pandang siapa yang sudah tahu. Serta giliran Last Man Out (MQS).*
+*Record meeting actions, tell each PIC in one tap, and see at a glance who knows. Plus the Last Man Out (MQS) rota.*
 
 **Live app:** https://hafizi-ui.github.io/planner/
-**Demo with a sample week:** https://hafizi-ui.github.io/planner/?demo=1
+**Demo with example data:** https://hafizi-ui.github.io/planner/?demo=1
 
-![Desktop view](docs/screenshot-desktop.png)
+![Meetings screen on a desktop](docs/screenshot-desktop.png)
 
 ## The problem
 
-Students and lecturers spend their week firefighting: assignments due tomorrow, last-minute forms, meetings called at short notice. Work that really matters, like the final-year project, research and lesson preparation, keeps getting pushed back until it becomes a crisis. Ordinary to-do lists record tasks but never question them.
+After every department meeting the secretary (Setiausaha Jabatan, SU) has a list of actions, each for a lecturer (the PIC, person in charge). Her real question is simple: **does every PIC know their task yet?** WhatsApp chats and paper minutes cannot answer it, and a general to-do list does not know who was told, who replied and what is late.
 
 ## The idea
 
-The Eisenhower Matrix sorts every task by two questions:
+The planner serves exactly two situations:
 
-| | Urgent | Not urgent |
+1. **Mesyuarat (meetings).** Record each action with its PIC and due date, tell the PIC by WhatsApp or email in one tap, and follow it until it is done.
+2. **Last Man Out (MQS).** Run the weekly office-closing rota, with reminders, a *Selesai* (done) confirmation and printable audit evidence.
+
+The main screen opens with one sentence that answers the owner's question, for example **"2 PIC belum tahu tugasan mereka · 3 menunggu pengesahan · 1 lewat"**, and below it one list grouped by status.
+
+## Meetings: from minutes to "every PIC knows"
+
+![Phone: a task's four steps](docs/screenshot-task.png)
+
+**Tugasan baharu** (new task) asks three things, in about ten seconds:
+
+- **Apa tugasannya?** (what): typing *esok* or *hari ini* (tomorrow, today) picks the due date for you
+- **Siapa PIC?** (who): chips with your 3 most recent PICs and a search over your contacts. A name that is not a contact can still be used, and the planner offers to save it. A PIC without a WhatsApp number shows *Tiada no. WhatsApp* straight away
+- **Bila perlu siap?** (when): Hari ini · Esok · Jumaat ini · Minggu depan · Pilih tarikh · Tiada tarikh
+
+**Simpan & tambah lagi** keeps the date for the next action, made for entering ten actions after a meeting.
+
+Every task moves through four steps, and each step has one next action:
+
+| Group on the screen | Meaning | Your next action |
 |---|---|---|
-| **Important** | **Do / Buat**: finish first | **Schedule / Jadualkan**: give it a date |
-| **Not important** | **Delegate / Agihkan**: name who handles it | **Delete / Buang**: let it go |
+| **Belum dimaklumkan** (not told yet) | Recorded, the PIC does not know | **Hantar kepada N PIC**: one message per PIC with all their new tasks, or WhatsApp / email from the task |
+| **Menunggu PIC sahkan** (waiting) | Message sent, no reply yet | Tap **Sudah tahu** when the PIC replies ("Baik, noted"). After 2 working days without a reply the task offers a ready-written reminder |
+| **PIC sudah tahu** (PIC knows) | The PIC confirmed | Watch the due date; ask for status if needed |
+| **Siap** (done) | Done | Nothing. Done tasks fold away and leave the list after 30 days |
 
-Many apps let you drag tasks into four boxes. This planner goes further. It **helps you decide which box**, then **shows you where your time actually went**.
+**Lewat** (overdue) is a red flag on top of any step, and the late task sorts first. **Perlu bantuan** (needs help) is a switch on the task. Nothing moves by itself, and the Ketua Jabatan is never contacted about meeting tasks: only you are prompted.
 
-## What makes it different
+**Hantar kepada PIC** (send to PICs) builds one message per person, numbered and sorted by due date, with an optional title such as *"Mesyuarat Jabatan Bil. 4/2026"*. Each card turns grey with "Dihantar melalui WhatsApp, 8:15 pagi" as you send it, so you can work down the list. Tapping a PIC's name shows all their tasks, an **Ask for status** message (they reply A = not started, B = in progress, C = done, D = need help) and **Tanda semua sudah tahu** (mark all as known).
 
-1. **Guided triage.** The urgent/important questions start unanswered, so nothing lands in the red box by default. Each question has a short definition (urgent = due within 48 hours or someone is waiting; important = moves a real goal forward). For urgent but unimportant tasks a third question asks *"Can someone else do it?"*.
-2. **Deadline words are picked up automatically.** Typing *esok*, *hari ini*, *tomorrow* or *deadline* marks the task urgent and says why.
-3. **Tasks move on their own.** When a scheduled task's date arrives, it moves to Do with a "From Schedule" label. This makes the cost of leaving things too late visible.
-4. **Weekly Insight: "Ke mana masa saya pergi?"** For the last 7 days it shows what you finished by box, a day-by-day chart, a **Balance score** (share of finished work that was planned) compared with the week before, and plain-language coaching.
-5. **Bahasa Melayu and English.** One tap switches every label, hint and insight.
-6. **Private and offline.** No account and no server. Data stays on the device. It installs to a phone's home screen and works in flight mode.
+The planner cannot send WhatsApp messages by itself (that needs the paid WhatsApp Business Platform). It prepares every message, you tap Send, and it remembers who was told. The Google Calendar button adds the PIC's email as a guest, so they also get an invitation.
 
-![Weekly insight](docs/screenshot-insight.png)
+**Kenalan jabatan** (team contacts, in **Lagi**) stores each member's name, WhatsApp number, email, role and programme. Add them one by one or import a CSV from Excel / Google Sheets. Numbers like `012-345 6789` are converted to WhatsApp format automatically. Contacts stay on your device only and are never part of the public website.
 
-![Project monitor](docs/screenshot-monitor.png)
+### Coming from the earlier four-box version
 
-## Meetings: assign a task to a PIC in one tap
+Your data is kept, in the same browser storage. On the first start a copy is saved, then:
 
-After a meeting, put each action item in **Delegate**, pick the person in charge (PIC) and set a due date. The task then shows:
+- Delegated tasks keep their PIC, and land in the matching group (told or not; *Sedang buat* or *Perlukan bantuan* means the PIC already knew)
+- Your own Buat / Jadualkan tasks appear in a small **Tiada PIC** group at the top: **Pilih PIC** gives them a PIC, **Padam** deletes them
+- Tasks in the Buang (delete) box move to the archive, as "Padam semua" did
+- Contacts, the Last Man Out rota, its codes and the rota CSV do not change
 
-- **WhatsApp**: opens WhatsApp with a ready message to the PIC (task, due date and a Google Calendar link)
-- **Email**: opens your email app with the subject and message filled in
-- **Google Calendar**: creates the event and adds the PIC's email as a guest, so they get an invitation
+Backups from the earlier versions still import, and are mapped the same way.
 
-A "Notified" label shows which PICs have been told.
+## Last Man Out (MQS): rota and reminders
 
-**Send to each PIC** (button at the bottom of the Delegate box) groups every open task by person and builds **one message per PIC**, numbered and sorted by due date, with an optional heading such as *"Mesyuarat Jabatan Bil. 3/2026"*. Tick *"Only tasks not yet notified"* to send just the new items after a follow-up meeting.
+The **Last Man Out** tab runs the department's weekly **Last Man Out** duty under the **MARA Ecosystem Quality Standard (MQS)**: the officer on duty is the last to leave and checks that lights, fans and air-conditioning are off (energy saving) and that the main switch is off and doors and windows are locked (office safety). The tab shows this week's officer, what has been sent, each day's *Selesai* (done) confirmation and the next turns. **Urus giliran** (manage rota) holds the tools: it builds the rota, reminds each officer on time, and prints the MQS evidence.
 
-**Team contacts** (⋯ menu) stores each member's name, WhatsApp number and email, so you never retype them. Add them one by one or import a CSV from Excel / Google Sheets (columns: name, WhatsApp no., email; optionally role, programme and Last Man Out rota, see below). Numbers like `012-345 6789` are converted to WhatsApp format automatically. Contacts stay on your device only and are never part of the public website.
-
-## Task pack: Last Man Out (MQS)
-
-A ready-made set of tasks for running a weekly **Last Man Out** duty rota under the **MARA Ecosystem Quality Standard (MQS)**. The rota and its daily checklist are evidence for MQS auditors that the office has an active system for **energy saving** (lights, fans and air-conditioning off after hours) and **office safety** (main switch off, doors and windows locked), with clear accountability for each week.
-
-Add it from the ⋯ menu (**Tambah pakej: Last Man Out (MQS)**) or open https://hafizi-ui.github.io/planner/?pakej=lmo. The tasks are added on top of your existing ones (nothing is replaced), and adding the pack twice does not create duplicates.
-
-| Box | Tasks |
-|---|---|
-| **Do** | List the officers for the weekly rota |
-| **Schedule** | Prepare the weekly duty roster (date/week + officer name) · Prepare the checklist (lights off, air-conditioning off, main switch/plugs off, main door locked) · Add signature & time-out columns (daily record) · First weekly check by the centre MQS committee · File the roster & forms as MQS audit evidence |
-| **Delegate** | Print & post the roster at the main exit / zone notice board · Tell every officer on the rota · Duty officer completes the checklist every day before leaving (fill in the PIC) |
-| **Delete** | Relying on one person to close the office every day |
-
-Scheduled dates are set from the day you add the pack (tomorrow, in 2 days, in a week), so the tasks move to Do on their own when the day arrives. Edit any date to match your audit timeline.
-
-## Giliran Last Man Out (rota) & reminders
-
-The task pack above helps you set the duty up. **Giliran Last Man Out** (first item in the ⋯ menu) then runs it week after week: it builds the rota, reminds each officer on time, and prints the MQS evidence.
-
-**1. Import the department's members once.** In **Team contacts**, import a CSV with these columns (BM header; the English header `Name,WhatsApp no.,Email,Role,Programme,LMO rota` also works):
+**1. Import the department's members once.** In **Lagi › Kenalan jabatan** (team contacts), import a CSV with these columns (BM header; the English header `Name,WhatsApp no.,Email,Role,Programme,LMO rota` also works):
 
 ```
 Nama,No. WhatsApp,Emel,Jawatan,Program,Giliran LMO
@@ -100,9 +96,11 @@ Keep this file on your own computer. It must never be uploaded to this repositor
 | First day of the turn | WhatsApp reminder with the checklist | Duty officer |
 | Every duty day, after the duty | Press **Selesai** (Done) to confirm the checklist, by the confirmation deadline (default 6:30 pm) | Duty officer |
 
-The planner has no server, so a banner (*"Last Man Out: notis untuk ... perlu dihantar"*) tells you when a notice is due, with one-tap Email / Calendar / WhatsApp buttons. It remembers what was sent and flags late notices. To send the email and calendar invitation fully automatically, use the Google Apps Script below.
+The planner has no server, so on the days you must act, a notice on the Meetings screen and a red dot on the Last Man Out tab tell you, with one-tap Email / Calendar / WhatsApp buttons. It remembers what was sent and flags late notices. To send the email and calendar invitation fully automatically, use the Google Apps Script below.
 
 **5. Print the MQS evidence.** **Cetak jadual** prints the duty roster (week/date, officer, role/programme, signature, remarks). **Cetak senarai semak** prints a 4-week daily checklist (lights, air-conditioning, main switch/plugs, doors and windows locked, time out, signature) with a "checked by" line for the MQS committee.
+
+![Phone: the Last Man Out tab](docs/screenshot-lmo.png)
 
 ## Automation with Google Apps Script
 
@@ -115,7 +113,7 @@ An optional script in [`automation/`](automation/) runs every morning (about 7 a
 
 **Message texts.** The WhatsApp text is the SU's own message, so it is identical to the planner's and signed "Setiausaha Jabatan JPPP, KPTM Kuantan". The script's **emails** intentionally differ from the planner's (which the SU sends herself in planner-only mode): they are signed "JPPP Smart Planner, Jabatan Pengurusan Perniagaan & Perakaunan, KPTM Kuantan" and ask officers to tell the **Setiausaha Jabatan** (not "saya") if they cannot do the duty. Calendar titles and descriptions are the same in both.
 
-Setup: the SU exports **Eksport CSV untuk Google Sheet** from her planner; the admin imports it into a private Google Sheet tab named `Giliran` (or shares the Sheet with the SU so she can import it), pastes [`LastManOut.gs`](automation/LastManOut.gs) into **Extensions › Apps Script**, then chooses **Last Man Out › Pasang (sekali sahaja)**. Step-by-step guide in Bahasa Melayu: **[automation/PANDUAN.md](automation/PANDUAN.md)**. Afterwards, the SU ticks **Emel & kalendar dihantar automatik oleh Google Apps Script** in her planner so the banner only asks for WhatsApp.
+Setup: the SU exports **Eksport CSV untuk Google Sheet** from her planner; the admin imports it into a private Google Sheet tab named `Giliran` (or shares the Sheet with the SU so she can import it), pastes [`LastManOut.gs`](automation/LastManOut.gs) into **Extensions › Apps Script**, then chooses **Last Man Out › Pasang (sekali sahaja)**. Step-by-step guide in Bahasa Melayu: **[automation/PANDUAN.md](automation/PANDUAN.md)**. Afterwards, the SU ticks **Emel & kalendar dihantar automatik oleh Google Apps Script** in **Urus giliran › Tetapan giliran**, so the planner only asks her for the WhatsApp.
 
 Rota CSV columns (planner export → Sheet):
 
@@ -138,59 +136,39 @@ The owner's MQS requirement: after the duty, the officer confirms the checklist;
 - **Timing (defaults).** 6:15 pm: reminder email to the officer if not yet confirmed. 6:30 pm (the deadline): alert email to the Ketua Jabatan with the secretary and the admin in cc. A confirmation after the deadline is recorded as *Lewat* (late) and the Ketua Jabatan gets one follow-up email. A trigger checks every 10 minutes from 5 pm on weekdays; if all of an evening's checks failed, the next morning's run sends the alert once, marked "(semalam)".
 - **No false alarms** for public holidays, no-duty days inside a weekly turn (`Hari tiada tugas`), weekends, or turns that began before the web app was set up.
 - **MQS evidence.** Each day is recorded in the Sheet tab **Pengesahan**: date, turn, officer, time confirmed, status (*Tepat masa*, *Lewat*, *Tidak disahkan*, *Tiada tugas*), checklist, reminder, alert and follow-up times.
-- **Without the web app**, the messages instead ask the officer to tell the secretary "SELESAI" by WhatsApp or email, and the planner shows a banner after the deadline with one-tap WhatsApp / email buttons to inform the Ketua Jabatan.
+- **Without the web app**, the messages instead ask the officer to tell the secretary "SELESAI" by WhatsApp or email, and after the deadline the planner shows a notice (and the day in the Last Man Out tab) with **Tanda Selesai** and one-tap WhatsApp / email buttons to inform the Ketua Jabatan.
 - **Ketua Jabatan email**, in order: the menu **Last Man Out › Emel Ketua Jabatan** (e.g. an acting KJ), else the `Emel KJ` column, else the alert goes to the secretary (admin in cc) with a note explaining why.
 - **Security.** Codes are random (about 122 to 128 bits). Because "Anyone" can call the script's public functions from the page, the menu functions do nothing outside the Sheet, and only `confirmLmo` records a confirmation.
 
 Setup steps in Bahasa Melayu: [PANDUAN.md section 11](automation/PANDUAN.md#11-butang-selesai-pengesahan-selepas-tugas).
 
-## Project monitor (Pantauan projek)
-
-For whoever follows up on delegated work, such as a head of department or project lead:
-
-- **Status on every delegated task:** Not started / In progress / Needs help / Done, plus a short status note and "last updated" date
-- **Reminder banner:** when you open the planner, it tells you how many delegated tasks are due tomorrow or overdue
-- **Needs a reminder:** each such task has a one-tap **WhatsApp reminder** (or email) with a polite, ready-written message. A "Reminded today" label prevents double reminders
-- **By PIC:** a card per person with a progress bar, overdue and "needs help" flags, and an **Ask for status** button. It sends one message listing that person's open tasks, with reply codes (A = Not started, B = In progress, C = Done, D = Need help), so you can update the status in seconds
-- **Summary tiles:** open tasks, % done, overdue, due today/tomorrow, and tasks with no news for 5+ days
-
-The planner has no server, so it cannot send WhatsApp messages on its own. It does the remembering for you and prepares every message, and you tap Send. Google Calendar invitations give PICs their own reminders, based on their calendar notification settings.
-
-## How it works with Google Calendar
-
-Google Calendar answers *when* you are busy. This planner answers *whether that busyness is worth it*. They work together: decide priorities here, then send dated Schedule tasks to Google Calendar with one tap to get reminders and sync across devices. No login or server is needed in the planner for this.
-
 ## Who it is for
 
-Diploma and degree students juggling coursework, co-curricular work and part-time jobs, and lecturers balancing teaching, research and administration, starting at KPTM.
-
-It is also set up for the **department secretary (Setiausaha Jabatan, SU) of JPPP** (Jabatan Pengurusan Perniagaan & Perakaunan), KPTM Kuantan: sorting department work, delegating meeting actions to PICs and following them up, and running the weekly Last Man Out (MQS) rota with its reminders.
+The **department secretary (Setiausaha Jabatan, SU) of JPPP** (Jabatan Pengurusan Perniagaan & Perakaunan), KPTM Kuantan: following up meeting actions with each PIC, and running the weekly Last Man Out (MQS) rota with its reminders. It works the same for any secretary or coordinator who hands out tasks after meetings.
 
 ## Features
 
-- Add a task and answer two quick questions; the "Goes to" preview shows the box before you add it
-- Move tasks by dragging, or with the Move menu (works with a keyboard and on phones)
-- Dates for Schedule tasks and due dates for Delegate tasks (overdue dates are flagged)
-- **Google Calendar button** on dated Schedule and Delegate tasks: opens Google Calendar with the event already filled in, so the planner decides *what* matters and Calendar handles *when* and reminders
-- Double-click or use the pencil to edit; undo after deleting
-- Finished and let-go tasks are kept for the weekly Insight (up to 120 days)
-- Progress bar (the Delete box is not counted)
-- Light and dark theme, BM/EN switch
-- Export and import backups (JSON)
-- Load a sample week from the ⋯ menu, or open the app with `?demo=1`
-- Last Man Out duty rota with timed reminders and a printable roster and checklist (see above)
-- Press `/` to jump to the task box
+- Three tabs: **Mesyuarat** (meetings), **Last Man Out**, **Lagi** (more). Bottom tab bar on phones, left rail on wide screens; details open as a bottom sheet on phones and a side panel on desktops, so you never lose your place
+- One headline that says who does not know their task yet, then one list grouped by status
+- New task in three fields; date words (*esok*, *hari ini*, *minggu depan*) pick the date
+- One-tap WhatsApp / email / Google Calendar for a task, or one message per PIC for the whole meeting
+- **Sudah tahu** on every waiting task; reminders after 2 working days; **Lewat** and **Perlu bantuan** flags
+- A page per PIC with their tasks, an ask-for-status message and "mark all as known"
+- Last Man Out rota with timed reminders, *Selesai* confirmation, printable roster and checklist (see above)
+- Bahasa Melayu (default) and English; light, dark or automatic theme
+- Save and restore backups (JSON); works offline and installs to the home screen
+- Example data in the empty state ("Cuba dengan contoh") or with `?demo=1`
 
 ## Accessibility
 
-- Every action works with a keyboard; focus stays in place after changes
-- Moves and additions are announced to screen readers
+- Every action works with a keyboard; focus returns to where you were after each sheet closes (press `/` or `n` for a new task)
+- Changes are announced to screen readers; every status has a word and an icon, never colour alone
 - Colour contrast meets WCAG 2.2 AA in light and dark themes (checked with axe-core: 0 violations)
 - Respects "reduce motion" settings
 
 ## Privacy
 
-Everything, including team contacts and the rota, is stored in the browser's `localStorage` on your own device. The planner sends nothing to any server and there is no tracking. Use **Export backup** to move tasks to another device. The optional Apps Script runs in your own Google account, not on this website.
+Everything, including team contacts and the rota, is stored in the browser's `localStorage` on your own device. The planner sends nothing to any server and there is no tracking. Use **Lagi › Simpan sandaran** (save a backup) to move everything to another device. The optional Apps Script runs in your own Google account, not on this website.
 
 ## Privacy note for staff data
 
@@ -237,9 +215,8 @@ Test the Apps Script without a Google account: `node --test automation/test`.
 
 ## Roadmap
 
-- Focus mode: one Do task at a time with a 25-minute timer
-- Class view for lecturers: an anonymous summary of how a class spends its week
-- Reminders for Schedule dates
+- **"Saya terima" link** (phase 2): each message carries a personal link; when the PIC taps it, the task is ticked *Sudah tahu* by itself. It would reuse the Selesai web app and send only task reference numbers and secret codes (never names or task text), and only after you set it up
+- A monthly summary for the Ketua Jabatan (confirmed within a day, late by PIC), built from the archive
 
 ## Credits
 
